@@ -1,0 +1,177 @@
+/* ========================================== */
+/* ESTILOS GENERALES GENERALES DE SIAL-MED   */
+/* ========================================== */
+
+.stApp { 
+    background-color: #0e1117; 
+    color: #e0e0e0; 
+}
+
+/* 📌 ELIMINA EL ESPACIO BLANCO SUPERIOR DE TODA LA APP */
+.stAppHeader {
+    display: none !important; /* Esconde la barra transparente nativa de Streamlit */
+}
+
+.block-container {
+    padding-top: 1.5rem !important;    /* Reduce drásticamente el espacio muerto arriba */
+    padding-bottom: 1rem !important;   /* Ajusta el margen inferior */
+    padding-left: 3rem !important;     /* Ajuste lateral */
+    padding-right: 3rem !important;    /* Ajuste lateral */
+}
+
+/* 📌 SUBIR EL CONTENIDO DE LA BARRA LATERAL (SIDEBAR) */
+div[data-testid="stSidebarUserContent"] {
+    padding-top: 0.1rem !important; /* Hace que el escudo militar del sidebar empiece bien arriba */
+}
+
+/* Ajuste opcional para pegar más los títulos a las líneas divisorias */
+h1, h2, h3 {
+    margin-top: 0rem !important;
+    padding-top: 0rem !important;
+}
+
+[data-testid="stSidebar"] {
+    background-color: #161b22;
+    border-right: 2px solid #b91c1c;
+}
+
+.insumo-card {
+    background-color: #1c2128;
+    padding: 15px;
+    border-radius: 10px;
+    border: 1px solid #30363d;
+    margin-bottom: 10px;
+    transition: transform 0.2s;
+}
+
+.insumo-card:hover {
+    border-color: #b91c1c;
+    transform: scale(1.01);
+}
+
+/* Badges VED */
+.badge {
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-weight: 800;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+.badge-v { background-color: #ef4444; color: white; border: 1px solid #991b1b; }
+.badge-e { background-color: #f59e0b; color: white; border: 1px solid #b45309; }
+.badge-d { background-color: #10b981; color: white; border: 1px solid #065f46; }
+
+
+
+/* Contenedor de la celda de cabecera (Títulos) */
+.tabla-cabecera {
+    font-size: 16px;
+    color: #A3A3A3;
+    font-weight: bold;
+    margin: 0;
+}
+
+/* Forzamos a que las cajas de texto de Streamlit no tengan márgenes extras */
+.tabla-celda, .tabla-celda-bold {
+    font-size: 15px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 2.2 !important; /* Maneja la altura del texto */
+}
+
+.tabla-celda-bold {
+    font-weight: bold !important;
+}
+
+.stock-vacio {
+    color: #ef4444 !important;
+    font-weight: bold !important;
+}
+
+/* LA CLAVE: Forzamos a las columnas de Streamlit a achicarse al mínimo */
+[data-testid="stColumn"] {
+    padding-top: 0px !important;
+    padding-bottom: 0px !important;
+    margin-top: 0px !important;
+    margin-bottom: 0px !important;
+    min-height: 32px !important;
+}
+
+/* 🎯 ESTO SOLO CORRESPONDE A LOS BOTONES DE LA TABLA */
+/* Al poner .tabla-insumos-contenedor adelante, protegemos a todos los demás botones de la app */
+.tabla-insumos-contenedor [data-testid="stButton"] button {
+    height: 24px !important;
+    min-height: 24px !important;
+    padding-top: 0px !important;
+    padding-bottom: 0px !important;
+    line-height: 1 !important;
+    margin: 0 !important;
+}
+
+/* Opcional: Reducir las columnas solo dentro de la tabla */
+.tabla-insumos-contenedor [data-testid="stColumn"] {
+    padding-top: 0px !important;
+    padding-bottom: 0px !important;
+    margin-top: 0px !important;
+    margin-bottom: 0px !important;
+    min-height: 32px !important;
+}
+
+/* Badges VED con alineación controlada sin estirar la celda */
+.badge-base {
+    color: white !important;
+    font-size: 14px !important;
+    font-weight: bold !important;
+    text-align: center !important;
+    border-radius: 4px !important;
+    padding: 2px 6px !important;
+    width: 100px !important;
+    margin-top: 4px !important;
+    display: inline-block;
+}
+
+.badge-rojo { background-color: #ef4444 !important; }
+.badge-amarillo { background-color: #f59e0b !important; }
+.badge-verde { background-color: #10b981 !important; }
+
+/* Línea separadora súper delgada pegada al borde inferior */
+.linea-separadora {
+    margin: 0px 0 !important;
+    border: 0 !important;
+    border-top: 1px solid #262730 !important;
+    width: 100% !important;
+}
+
+
+
+
+
+
+/* ========================================== */
+/* SOLUCIÓN DE FUERZA BRUTA: REESCRITURA DE VARIABLES */
+/* ========================================== */
+
+/* 1. Modifica las variables raíz del tema de Streamlit */
+:root {
+    --st-colors-primary: #10b981 !important;
+    --st-primary: #10b981 !important;
+}
+
+/* 2. Forzado absoluto de fondo para formularios y diálogos */
+.stApp button[data-testid="baseButton-primary"], 
+.stApp button[data-testid="baseButton-formSubmit"],
+.stApp .stButton>button[kind="primary"] {
+    background-color: #10b981 !important;
+    color: #ffffff !important;
+    border: 1px solid #059669 !important;
+}
+
+/* 3. Forzado absoluto del estado Hover */
+.stApp button[data-testid="baseButton-primary"]:hover, 
+.stApp button[data-testid="baseButton-formSubmit"]:hover,
+.stApp .stButton>button[kind="primary"]:hover {
+    background-color: #059669 !important;
+    border-color: #047857 !important;
+    color: #ffffff !important;
+}
