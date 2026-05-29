@@ -16,3 +16,6 @@ session_cache.json
 # Configuraciones de editor
 .vscode/
 .idea/
+
+# informacion secreta
+.env
