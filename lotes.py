@@ -1,11 +1,11 @@
 import streamlit as st
-import pand as pd  
+import pandas as pd  
 import CRUDs.crud_lotes_entradas as crud_l  # Conexión directa con nuestro controlador de lotes
 from datetime import date
 import time
 
 # Define las cadenas de texto autorizadas para alterar datos del inventario médico
-ROLES_AUTORIZADOS = ["Administrador", "Encargado del area"]
+ROLES_AUTORIZADOS ["Administrador", "Encargado del area"]
 
 def usuario_tiene_permiso_escritura() -> bool:
     """Evalúa si el usuario en sesión cuenta con credenciales administrativas."""
