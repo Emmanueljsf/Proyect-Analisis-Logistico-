@@ -1,5 +1,5 @@
 import streamlit as st
-import pand as pd  
+import pandas as pd  
 import CRUDs.crud_lotes_entradas as crud_l  # Conexión directa con nuestro controlador de lotes
 from datetime import date
 import time
@@ -24,7 +24,7 @@ def Vista_Control_Lotes():
     # 📌 TRUCO MAESTRO: Reservamos el espacio exacto del título para inyectarlo después de filtrar
     contenedor_titulo = st.empty()
     
-    total_lotes_bd = len(tuplas_lotes)
+    total_lotes_bd = len(tuplas_lotes) #hola
 
     # ==============================================================================
     # 🧠 EXTRACCIÓN DINÁMICA DE OPCIONES PARA LOS SELECTBOXES FILTRADORES
