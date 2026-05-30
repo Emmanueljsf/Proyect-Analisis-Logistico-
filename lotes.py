@@ -24,7 +24,7 @@ def Vista_Control_Lotes():
     # 📌 TRUCO MAESTRO: Reservamos el espacio exacto del título para inyectarlo después de filtrar
     contenedor_titulo = st.empty()
     
-    total_lotes_bd = len(tuplas_lotes)
+    total_lotes_bd = len(tuplas_lotes) #hola
 
     # ==============================================================================
     # 🧠 EXTRACCIÓN DINÁMICA DE OPCIONES PARA LOS SELECTBOXES FILTRADORES
