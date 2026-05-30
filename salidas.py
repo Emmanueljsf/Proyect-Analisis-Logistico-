@@ -5,7 +5,7 @@ import CRUDs.crud_insumos as crud_i
 from datetime import datetime
 import time
 
-@st.dialog("📤 Registrar Despacho Colectivo (FIFO)", width="large")
+@st.dialog("📤 Registrar Despacho (FIFO)", width="large")
 def modal_registro_salida_fifo():
     """
     Formulario dinámico que permite acumular múltiples medicamentos en una misma

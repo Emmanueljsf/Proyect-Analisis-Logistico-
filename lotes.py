@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as pd  # Estructuración matricial para alto volumen (200-400 semanales)
+import pand as pd  
 import CRUDs.crud_lotes_entradas as crud_l  # Conexión directa con nuestro controlador de lotes
 from datetime import date
 import time
