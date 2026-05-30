@@ -9,7 +9,7 @@ import re
 # Lista explícita de las cadenas de texto (Strings) de roles con privilegios de escritura
 ROLES_AUTORIZADOS = ["Administrador", "Encargado del area"]
 
-def usuario_tiene_permiso_escritura() -> bool
+def usuario_tiene_permiso_escritura() -> bool:
     """
     Analiza el estado de la sesión activa para validar el rango del operador.
     
