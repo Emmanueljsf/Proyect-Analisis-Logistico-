@@ -7,13 +7,13 @@ import time
 # Define las cadenas de texto autorizadas para alterar datos del inventario médico
 ROLES_AUTORIZADOS = ["Administrador", "Encargado del area"]
 
-def usuario_tiene_permiso_escritura() -> bool
+def usuario_tiene_permiso_escritura() -> bool:
     """Evalúa si el usuario en sesión cuenta con credenciales administrativas."""
     es_autenticado = st.session_state.get("usuario_autenticado", False)
     rol_usuario = st.session_state.get("user_rol", None)
     return es_autenticado and (rol_usuario in ROLES_AUTORIZADOS)
 
-def Vista_Control_Lotes():
+def Vista_Control_Lotes()
     """
     Renderiza la perspectiva analítica de inventarios clasificada por lotes de fábrica.
     """
