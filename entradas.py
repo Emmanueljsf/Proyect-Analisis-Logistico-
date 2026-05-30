@@ -1,8 +1,8 @@
 import streamlit as st
-import pandas as pd  # Requerido para la estructuración y empaquetado de datos a alta velocidad
-import CRUDs.crud_lotes_entradas as crud_le  # Conexión con los controladores de persistencia en BD
-from datetime import date  # Manejo nativo de objetos de fecha de Python
-import time  # Control de pausas físicas de renderizado para confirmaciones visuales
+import pand as pd  
+import CRUDs.crud_lotes_entradas as crud_le  
+from datetime import date  
+import time  
 
 # Define las cadenas de texto autorizadas para alterar datos del inventario médico
 ROLES_AUTORIZADOS = ["Administrador", "Encargado del area"]

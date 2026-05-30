@@ -1,5 +1,5 @@
 import streamlit as st
-import pand as pd  
+import pandas as pd  
 import CRUDs.crud_lotes_entradas as crud_l  # Conexión directa con nuestro controlador de lotes
 from datetime import date
 import time
