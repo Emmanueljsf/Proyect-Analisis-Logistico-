@@ -11,7 +11,7 @@ import math
 
 def crear_insumo(nombre: str, ved: str) -> Insumos:
     """
-    Inserta un nuevo registro de insumo maestro en la base de datos.
+    Inserta un nuevo registro de insumo en la base de datos.
     Fuerza la limpieza de espacios en blanco y retorna la instancia con su ID autogenerado.
     """
     try:
@@ -22,14 +22,15 @@ def crear_insumo(nombre: str, ved: str) -> Insumos:
             session.refresh(nuevo) # Sincroniza el objeto local con la clave primaria generada por SQLite
             return nuevo
     except Exception as e:
-            print(f"🛑 Error crítico en crear_insumos: {e}")
+            print(f"Error crítico en crear_insumos: {e}")
 
 
 def obtener_insumos(
-    solo_activos: bool= False,                
-    txt_buscar: str= "",                       # Entrada de la barra única (Nombre/VED)
-    opt_estado: str= "ACTIVOS",                # Selector administrativo del catálogo
-):
+    solo_activos: bool= False, txt_buscar: str= "", opt_estado: str= "ACTIVOS"):
+    """
+    Consulta y filtra el catálogo de insumos de la base de datos.
+    Permite la búsqueda por coincidencia de texto y discriminación por estado administrativo.
+    """
     with Session(engine) as session:
         try:
             condiciones = []
@@ -155,7 +156,19 @@ def obtener_insumos_con_paginacion(  # FUNCION DESCARTADA
         
 
 def actualizar_catalogo_insumos_masivo(cambios_dict: dict) -> bool:
-    """Procesa modificaciones y bajas lógicas en cascada desde la grilla."""
+    """
+    Actualiza de forma masiva o parcial los atributos de un insumo existente.
+    Aplica validaciones de obligatoriedad antes de consolidar los cambios en SQLite.
+
+    Parámetros: campos : dict
+        Un diccionario estructurado donde las llaves son los IDs de los insumos (int) 
+        y los valores son diccionarios con los campos que se van a modificar 
+        (ej. {2: {"NOMBRE DEL INSUMO": "NUEVO NOMBRE", "CLASIFICACIÓN VED": "V"}}).
+
+    Retorna: bool o str
+        Retorna True si la transacción se consolidó exitosamente. 
+        En caso de violar reglas lógicas o fallas de BD, ejecuta un rollback y retorna un str con el error.
+    """
     with Session(engine) as session:
         try:
             for id_ins_str, campos in cambios_dict.items():

@@ -1,13 +1,18 @@
 import streamlit as st
 import CRUDs.crud_usuarios as crud_u  # Importamos la función de arriba
-import time # 📌 NUEVO: Librería nativa para controlar el tiempo
+import time # Librería nativa para controlar el tiempo
 
 def Vista_Login():
+    """
+    Gestiona la interfaz del formulario de control de acceso y autenticación del sistema.
+    Valida las credenciales introducidas, procesa las respuestas lógicas de seguridad 
+    y setea las variables de entorno global en el session_state de Streamlit al verificar accesos.
+    """
     
-    # 📌 Creamos 3 columnas con proporciones [1, 1, 1] para que la del medio quede perfectamente centrada
+    # Creamos 3 columnas con proporciones [1, 1, 1] para que la del medio quede perfectamente centrada
     col_izq, col_centro, col_der = st.columns([2.2, 1.0, 2.2])
     with col_centro:
-        # 📌 Renderiza la imagen en la columna central ocupando todo su ancho disponible
+        # Renderiza la imagen en la columna central ocupando todo su ancho disponible
         st.image("media/emblema proyecto.jpg", use_container_width=True)
 
     st.markdown("<h2 style='text-align: center;'>🔐 SIAL-MED</h2>", unsafe_allow_html=True)
@@ -48,7 +53,7 @@ def Vista_Login():
                     st.session_state["user_rol"] = resultado.rol.value # Controla accesos a pestañas
                     st.session_state["user_nombre_completo"] = f"{resultado.nombres} {resultado.apellidos}"
 
-                    # 2. 📌 EL TRUCO: Congelamos la ejecución por 1.5 segundos para que dé tiempo de leer
+                    # 2. Congelamos la ejecución por 1.5 segundos para que dé tiempo de leer
                     time.sleep(1.5)
                     
                     # Forzamos la recarga de Streamlit para que dibuje el menú principal del sistema

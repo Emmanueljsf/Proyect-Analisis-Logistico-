@@ -5,9 +5,9 @@ from analisis_logistico import calcular_metricas_analiticas_sialmed
 
 def Vista_Dashboard_Logistico():
     """
-    PANEL DE INTELIGENCIA LOGÍSTICA Y CONTROL DE STOCK PREVENTIVO (SIAL-MED)
-    ======================================================================
-    Capa de Presentación Premium integrada con Pandas y Plotly Express.
+    Renderiza el Panel de Inteligencia Logística y Control de Stock Preventivo del SIAL-MED.
+    Consume las métricas analíticas del backend para estructurar la capa de presentación 
+    del Destacamento 134 mediante componentes visuales interactivos de Streamlit y Plotly Express.
     """
     try:
         st.title("📊 Panel de Inteligencia Logística y Análisis de Stock")
@@ -17,7 +17,7 @@ def Vista_Dashboard_Logistico():
         )
 
         # --------------------------------------------------------------------------
-        # ⚡ EXTRACCIÓN DE DATOS PROCESADOS POR EL BACKEND
+        # EXTRACCIÓN DE DATOS PROCESADOS POR EL BACKEND
         # --------------------------------------------------------------------------
         with st.spinner("Ejecutando algoritmos logísticos en tiempo real..."):
             df_rop, df_caducidad = calcular_metricas_analiticas_sialmed()
@@ -28,13 +28,13 @@ def Vista_Dashboard_Logistico():
         with st.spinner("Ejecutando algoritmos logísticos en tiempo real..."):
             df_rop, df_caducidad = calcular_metricas_analiticas_sialmed()
 
-        # 📌 CONTROL DE SEGURIDAD EXPLICITO
+        # CONTROL DE SEGURIDAD EXPLICITO
         if df_rop.empty or "semaforo" not in df_rop.columns:
             st.info("💡 Actualmente no existen lotes de insumos registrados o activos en el inventario para procesar el análisis logístico.")
             return
 
         # --------------------------------------------------------------------------
-        # 🎛️ BLOQUE 1: TARJETAS DE MÉTRICAS LOGÍSTICAS (Calibración Total)
+        # BLOQUE 1: TARJETAS DE MÉTRICAS LOGÍSTICAS (Calibración Total)
         # --------------------------------------------------------------------------
         total_insumos_distintos = len(df_rop)
         
@@ -72,7 +72,7 @@ def Vista_Dashboard_Logistico():
             st.metric(label="🔄 Lotes en Riesgo / Donar", value=lotes_riesgo_merma, delta="Acción Prev.", delta_color="off")
 
         # --------------------------------------------------------------------------
-        # 📑 BLOQUE 2: PESTAÑAS DE DISTRIBUCIÓN ANALÍTICA
+        # BLOQUE 2: PESTAÑAS DE DISTRIBUCIÓN ANALÍTICA
         # --------------------------------------------------------------------------
         tab_abastecimiento, tab_caducidad = st.tabs([
             "📦 Control de Abastecimiento (ROP / VED)", 

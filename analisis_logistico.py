@@ -8,8 +8,18 @@ import numpy as np
 
 def calcular_metricas_analiticas_sialmed(dias_ventana: int= 120):
     """
-    Función Maestra de Ingeniería Optimizada: Resuelve el inventario, consumo y mermas
-    utilizando agregaciones nativas de SQL para evitar el cuello de botella del ORM.
+    Función Maestra de Ingeniería Optimizada: Resuelve el estado del inventario, 
+    patrones de consumo y mermas potenciales utilizando agregaciones nativas de SQL.
+    Evita cuellos de botella procesando de forma vectorial mediante Pandas y NumPy.
+
+    Parámetros: dias_ventana : int, opcional
+        Número de días hacia el pasado para evaluar el historial de consumo real. 
+        Por defecto es 120 días.
+
+    Retorna: tuple (pd.DataFrame, pd.DataFrame)
+        Una tupla con dos DataFrames de Pandas:
+        1. df_rop: Análisis de Punto de Reorden, consumos promedio (CPD) y estado de stock (Semáforo).
+        2. df_caducidad: Diagnóstico logístico predictivo de lotes próximos a vencer y cálculo de mermas.
     """
     try:
         hoy = date.today()
@@ -17,7 +27,7 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int= 120):
         
         with Session(engine) as session:
             # ----------------------------------------------------------------------
-            # ⚡ OPTIMIZACIÓN DEL PASO 1: Consumo Directo Agrupado por Insumo en SQL
+            # OPTIMIZACIÓN DEL PASO 1: Consumo Directo Agrupado por Insumo en SQL
             # ----------------------------------------------------------------------
             # Extraemos el consumo y la fecha de la primera salida en una sola operación vectorial
             stmt_salidas_sql = (

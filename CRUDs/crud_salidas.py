@@ -11,7 +11,8 @@ def obtener_lotes_disponibles_fefo(
     session_externa: Optional[Session] = None  # 👈 1. Agregamos el parámetro opcional para las pruebas
 ):
     """
-    Busca, filtra y ordena los lotes según la doctrina logística del SIAL-MED.
+    Busca y ordena los lotes de un insumo priorizando su fecha de vencimiento (First Expired, First Out).
+    Soporta inyección de sesión externa para la ejecución aislada de pruebas unitarias.
     """
     try:
         # 👈 2. Si viene sesión de las pruebas, usamos esa. Si no, abrimos la local de producción.
@@ -61,8 +62,11 @@ def registrar_despacho_combinado_fefo(
     lista_pedidos: list,
     session_externa: Optional[Session] = None
 ):
-    """Consolida la transacción de despacho inyectando la lógica manual o automática por renglón."""
-    
+    """
+    Procesa la salida de insumos distribuyendo la cantidad solicitada entre múltiples lotes bajo la doctrina FEFO.
+    Asienta la orden de salida y descuenta los inventarios de forma atómica en una única transacción.
+    """
+
     # Si viene sesión externa (pruebas), la usamos. Si no, creamos una local.
     session = session_externa if session_externa is not None else Session(engine)
 
@@ -264,8 +268,7 @@ def obtener_salidas_filtradas_paginadas(
 
 def obtener_detalles_insumos_por_acta(id_salida: int):
     """
-    Busca los renglones de insumos y lotes haciendo un cruce de datos plano.
-    Evita depender de las propiedades relacionales anidadas del ORM que retornan None.
+    Recupera los insumos y lotes específicos que componen una orden de salida determinada.
     """
     with Session(engine) as session:
         try:
@@ -296,7 +299,14 @@ def obtener_detalles_insumos_por_acta(id_salida: int):
 
 def actualizar_registros_salidas_masivo(cambios_cabecera: dict, cambios_detalle: dict, df_maestro, df_detalle):
     """
-    Mantiene intacto tu motor lógico original pero aislando los campos reales.
+    Actualiza de forma masiva múltiples actas de entrada en una única transacción atómica.
+    Parámetros: cambios_dict : dict
+        Un diccionario mapeado donde las llaves son los IDs de las entradas (int) 
+        y los valores son diccionarios con los campos modificados (ej. {'cantidad': 50}).
+
+    Retorna: bool
+        True si todas las actualizaciones se consolidaron con éxito en SQLite. 
+        Realiza un rollback completo y retorna False o un mensaje si ocurre un error.
     """
     with Session(engine) as session:
         try:

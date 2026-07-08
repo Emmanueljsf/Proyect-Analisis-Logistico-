@@ -111,7 +111,7 @@ def actualizar_usuario(id_usuario: int, datos_nuevos: dict) -> bool:
             print(f"Error crítico en actializar usuario: {e}")
 
 
-
+# NO ESTÁ EN USO
 def eliminar_usuario(id_usuario: int) -> bool:
     """Remueve una cuenta de usuario de la base de datos"""
     with Session(engine) as session: # Inicializa el bloque de conexión

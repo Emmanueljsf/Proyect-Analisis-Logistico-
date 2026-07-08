@@ -11,6 +11,7 @@ def registrar_ingreso_inventario(id_insumo, codigo_lote, fecha_vencimiento, ubic
     """
     Registra el lote acoplándolo rigurosamente al insumo base 
     y asienta el acta de entrada en una misma transacción.
+    Garantiza la integridad transaccional evitando la duplicidad de lotes activos.
     """
     with Session(engine) as session:
         try:
@@ -56,7 +57,8 @@ def registrar_ingreso_inventario(id_insumo, codigo_lote, fecha_vencimiento, ubic
             print(f"✖️ FALLA CRÍTICA EN BASE DE DATOS: {str(e)}")
             return f"✖️ FALLA CRÍTICA EN BASE DE DATOS: {str(e)}"
 
-def obtener_historial_entradas(): # NO ESTA EN USO
+# NO ESTA EN USO
+def obtener_historial_entradas(): 
     """
     Retorna tuplas explícitas con todas las relaciones cargadas en caliente antes de cerrar la sesión.
     """
@@ -167,6 +169,14 @@ def actualizar_registros_entradas_masivo(cambios_dict: dict) -> bool:
     Procesa las modificaciones masivas de la grilla de Entradas (st.data_editor).
     Sanea rigurosamente los tipos de datos (Strings a date) al inicio del ciclo
     para evitar excepciones de Autoflush en SQLite.
+    
+    Parámetros: cambios_dict : dict
+        Un diccionario mapeado donde cada llave es el ID de la entrada (int) 
+        y cada valor es otro diccionario con los campos modificados (ej. {4: {'cantidad': 150}}).
+
+    Retorna: bool
+        Retorna True si todas las actualizaciones se guardaron con éxito en SQLite. 
+        Realiza un rollback integral y retorna False si ocurre cualquier excepción.
     """
     with Session(engine) as session:
         try:
@@ -372,8 +382,18 @@ def obtener_lotes_filtrados(
 
 def actualizar_registros_lotes_masivo(cambios_dict: dict):
     """
-    Procesamiento masivo optimizado. Captura colisiones del índice único compuesto
-    (codigo_lote + id_insumo + activo==1) y gestiona errores de escritura.
+    Actualiza de forma masiva las propiedades físicas de múltiples lotes en una sola transacción.
+    Permite modificar atributos esenciales como la ubicación física o el código identificador
+    de varios lotes de manera simultánea en el archivo SQLite.
+
+    Parámetros: cambios_dict : dict
+        Un diccionario estructurado donde las llaves son los IDs de los lotes (int) 
+        y los valores son diccionarios con los campos que se van a modificar 
+        (ej. {2: {"ubicacion_fisica": "Estante B-4"}}).
+
+    Retorna: bool
+        Retorna True si todas las actualizaciones se consolidaron con éxito en la base de datos.
+        Ejecuta un rollback integral y retorna False si ocurre cualquier error de persistencia.
     """
     hoy = date.today()
     
@@ -474,16 +494,19 @@ def actualizar_registros_lotes_masivo(cambios_dict: dict):
             return f"✖️ REGLA LOGÍSTICA: {str(e)}"
         except Exception as e:
             session.rollback()
+            print(f"✖️ Error al intentar actualizar los lotes: {str(e)}")
             return f"✖️ FALLA CRÍTICA EN BASE DE DATOS: {str(e)}"
         
 
 def anular_entrada_y_lote(id_entrada: int) -> tuple:
     """
-    Aplica una anulación lógica e institucional a una entrada y a su lote asociado.
-    Argumentos:
-        id_entrada (int): La clave primaria de la entrada a revertir.    
-    Retorna:
-        tuple: (bool, str) -> (Resultado de la operación, Mensaje descriptivo/Alerta)
+    Ejecuta la anulación logística de un acta de entrada y desactiva su lote.
+    Bloquea la operación si el lote ya cuenta con despachos registrados para auditoría médica.
+
+    Retorna: tuple (bool, str)
+        Una tupla con dos elementos:
+        1. bool: True si la operación fue exitosa, False si fue bloqueada o falló.
+        2. str: Mensaje detallado del resultado o motivo del bloqueo para mostrar en la interfaz.
     """
     # Abrimos una sesión segura con el motor de SQLModel
     with Session(engine) as session:
@@ -530,4 +553,5 @@ def anular_entrada_y_lote(id_entrada: int) -> tuple:
         except Exception as e:
             # Si algo falla a mitad de camino, restauramos todo al estado anterior (Rollback)
             session.rollback()
+            print(f"Error al intentar anular la entrada y lote: {str(e)}")
             return False, f"FALLO CRÍTICO DE BASE DE DATOS: {str(e)}"
