@@ -1,194 +1,205 @@
 import streamlit as st
 import pandas as pd  
-import CRUDs.crud_lotes_entradas as crud_l  # Conexión directa con nuestro controlador de lotes
+import CRUDs.crud_lotes_entradas as crud_l  
+import CRUDs.crud_insumos as crud_ins  # Importamos para obtener la lista de opciones de insumos
+from insumos1 import usuario_tiene_permiso_escritura
 from datetime import date
 import time
-
-# Define las cadenas de texto autorizadas para alterar datos del inventario médico
-ROLES_AUTORIZADOS = ["Administrador", "Encargado del area"]
-
-def usuario_tiene_permiso_escritura() -> bool
-    """Evalúa si el usuario en sesión cuenta con credenciales administrativas."""
-    es_autenticado = st.session_state.get("usuario_autenticado", False)
-    rol_usuario = st.session_state.get("user_rol", None)
-    return es_autenticado and (rol_usuario in ROLES_AUTORIZADOS)
+import math
 
 def Vista_Control_Lotes():
     """
-    Renderiza la perspectiva analítica de inventarios clasificada por lotes de fábrica.
+    Renderiza el control de lotes con filtros procesados en el backend
+    y paginación local de 50 en 50 para alto rendimiento.
     """
-    # 1. Recupera el histórico mapeado desde el backend en memoria RAM
-    tuplas_lotes = crud_l.obtener_todos_lotes_con_relaciones()
-    puede_editar = usuario_tiene_permiso_escritura()
+    try:
+        # Inicialización obligatoria del estado de la página para evitar KeyErrors
+        if "pagina_lotes" not in st.session_state:
+            st.session_state["pagina_lotes"] = 1
 
-    # 📌 TRUCO MAESTRO: Reservamos el espacio exacto del título para inyectarlo después de filtrar
-    contenedor_titulo = st.empty()
-    
-    total_lotes_bd = len(tuplas_lotes) #hola
+        puede_editar = usuario_tiene_permiso_escritura()
+        contenedor_titulo = st.empty()
 
-    # ==============================================================================
-    # 🧠 EXTRACCIÓN DINÁMICA DE OPCIONES PARA LOS SELECTBOXES FILTRADORES
-    # ==============================================================================
-    opciones_insumos_set = set()
-    opciones_lotes_set = set()
-    opciones_ubicaciones_set = set()
-
-    for tupla in tuplas_lotes:
-        lote_obj, insumo_obj, _ = tupla
-        if insumo_obj:
-            opciones_insumos_set.add(insumo_obj.nombre.upper())
-        if lote_obj:
-            opciones_lotes_set.add(lote_obj.codigo_lote.upper())
-            if lote_obj.ubicacion_fisica:
-                opciones_ubicaciones_set.add(lote_obj.ubicacion_fisica.upper())
-
-    lista_insumos = [""] + sorted(list(opciones_insumos_set))
-    lista_lotes = [""] + sorted(list(opciones_lotes_set))
-    lista_ubicaciones = [""] + sorted(list(opciones_ubicaciones_set))
-
-    # ==============================================================================
-    # 🎛️ FILTROS AVANZADOS PREDICTIVOS (Mismo layout de Entradas)
-    # ==============================================================================
-    c_med, c_lote, c_ubica, c_venc = st.columns([1.5, 1.2, 1.2, 1.6])
-    
-    with c_med:
-        f_med = st.selectbox("Filtrar por Medicamento", options=lista_insumos, index=0)
-    with c_lote:
-        f_lote = st.selectbox("Filtrar por Código de Lote", options=lista_lotes, index=0)
-    with c_ubica:
-        f_ubica = st.selectbox("Filtrar por Ubicación", options=lista_ubicaciones, index=0)
-    with c_venc:
-        f_limite_venc = st.date_input("Vencimientos anteriores a:", value=date(2030, 12, 31), format="DD/MM/YYYY")
-
-
-    # ==============================================================================
-    # 🧠 MOTOR DE FILTRADO CONCURRENTE
-    # ==============================================================================
-    lotes_filtrados = []
-    for tupla in tuplas_lotes:
-        lote_obj, insumo_obj, _ = tupla
-        
-        nombre_insumo = insumo_obj.nombre.upper() if insumo_obj else ""
-        cod_lote = lote_obj.codigo_lote.upper() if lote_obj else ""
-        ubica_txt = lote_obj.ubicacion_fisica.upper() if lote_obj else ""
-        
-        match_med = not f_med or (f_med == nombre_insumo)
-        match_lote = not f_lote or (f_lote == cod_lote)
-        match_ubica = not f_ubica or (f_ubica == ubica_txt)
-        
-        match_fecha = True
-        if lote_obj and lote_obj.fecha_vencimiento:
-            match_fecha = lote_obj.fecha_vencimiento <= f_limite_venc
-
-        if match_med and match_lote and match_ubica and match_fecha:
-            lotes_filtrados.append(tupla)
-
-    # ==============================================================================
-    # 📊 INYECCIÓN DEL TÍTULO DINÁMICO CON EL FORMATO SOLICITADO
-    # ==============================================================================
-    total_filtrados_lotes = len(lotes_filtrados)
-    
-    # Inyectamos el título en formato exacto al solicitado en la parte superior
-    contenedor_titulo.markdown(
-        f"<h2 style='margin-bottom: 0;'>📦 Control de Lotes ({total_filtrados_lotes} / {total_lotes_bd})</h2>"
-        f"<p style='color: gray; margin-top: 0;'>Inspección detallada de cargamentos y vencimientos en el almacén del <b>Destacamento 134</b>.</p>", 
-        unsafe_allow_html=True
-    )
-
-    if not puede_editar:
-        st.info("🔒 Modo Lectura: No tiene privilegios para alterar las propiedades de los lotes.")
-
-    # 🛠️ PASO 1: Aquí reservamos el espacio en la pantalla (todavía está invisible)
-    contenedor_guardar_modificacion = st.empty()
-
-    # ==============================================================================
-    # 📈 RENDERIZADOR INTERACTIVO CON DATAFRAME EDITABLE (Look Limpio)
-    # ==============================================================================
-    st.write("")
-    if not lotes_filtrados:
-        st.info("💡 No se encontraron lotes registrados que coincidan con los filtros.")
-    else:
-        filas_raw = []
-        hoy = date.today()
-
-        for tupla in lotes_filtrados:
-            lote_obj, insumo_obj, entrada_obj = tupla
+        # ==============================================================================
+        #  BARRAS DE BÚSQUEDA 
+        # ==============================================================================
+        with st.expander("🔍 Panel de Filtros Centralizado", expanded=True):
+            f_col1, f_col2, f_col3, f_col4 = st.columns([2.5, 1.2, 1.8, 1.2])
             
-            # Semáforo visual simple incorporado al texto de la alerta
-            venc_status = "⚠️ VENCIDO" if lote_obj.fecha_vencimiento and lote_obj.fecha_vencimiento <= hoy else "🟢 ACTIVO"
-            stock_disp = lote_obj.stock_disponible  # @property dinámica de tu modelo
-            
-            filas_raw.append({
-                "ID": lote_obj.id_lote,
-                "INSUMO MÉDICO": insumo_obj.nombre.upper() if insumo_obj else "SIN INSUMO",
-                "CÓD. LOTE": lote_obj.codigo_lote.upper() if lote_obj else "N/A",
-                "UBICACIÓN": lote_obj.ubicacion_fisica.upper() if lote_obj.ubicacion_fisica else "SIN ASIGNAR",
-                "CANT. INICIAL": entrada_obj.cantidad if entrada_obj else 0,
-                "STOCK DISP.": "AGOTADO" if stock_disp == 0 else stock_disp,
-                "F. VENCIMIENTO": lote_obj.fecha_vencimiento,
-                "ESTADO": venc_status
-            })
+            with f_col1:
+                txt_universal = st.text_input(
+                    "Buscador Universal:", 
+                    placeholder="Nombre insumo, VED, código lote o ubicación...", 
+                    key="fl_universal"
+                ).strip()
+                
+            with f_col2:
+                txt_rango_stock = st.text_input(
+                    "Rango Stock (Min-Max):", 
+                    placeholder="Ej: 10-50 o 0", 
+                    key="fl_stock"
+                ).strip()
+                
+            with f_col3:
+                rango_vencimiento = st.date_input(
+                    "Ventana de Vencimiento:", 
+                    value=[date(2024, 1, 1), date(2030, 12, 31)], 
+                    format="DD/MM/YYYY", 
+                    key="fl_fecha"
+                )
+                
+            with f_col4:
+                opt_estado = st.selectbox(
+                    "Disponibilidad:", 
+                    ["ACTIVOS", "INACTIVOS", "TODOS"], 
+                    index=0, 
+                    key="fl_estado"
+                )
 
-        df_lotes = pd.DataFrame(filas_raw)
-
-        if puede_editar:
-            st.caption("💡 **Modo Editor Activo:** Haga doble clic en *Cód. Lote*, *Ubicación* o *F. Vencimiento* para enmendar registros de forma directa.")
-
-        # Invocación de la grilla de alto rendimiento enlazada al búfer de sesión
-        grilla_lotes = st.data_editor(
-            df_lotes,
-            use_container_width=True,
-            hide_index=True,
-            height=400,
-            key="editor_lotes",  # Permite atrapar las mutaciones en caliente
-            # 📌 REQUISITO REFINADO: Bloqueamos ID, Insumo, Cantidad Inicial, Stock Calculado y Estado
-            disabled=["ID", "INSUMO MÉDICO", "CANT. INICIAL", "STOCK DISP.", "ESTADO"] if puede_editar else True,
-            column_config={
-                "ID": st.column_config.NumberColumn(label="ID", format="%d"),
-                "INSUMO MÉDICO": st.column_config.TextColumn(label="INSUMO MÉDICO"),
-                "CÓD. LOTE": st.column_config.TextColumn(label="CÓD. LOTE (Editable)"),
-                "UBICACIÓN": st.column_config.TextColumn(label="UBICACIÓN (Editable)"),
-                "CANT. INICIAL": st.column_config.NumberColumn(label="CANT. INICIAL", format="%d unds."),
-                # Si el stock tiene texto ("AGOTADO") o números, el TextColumn genérico se adapta sin romper formatos numéricos rígidos
-                "STOCK DISP.": st.column_config.TextColumn(label="STOCK DISP."),
-                "F. VENCIMIENTO": st.column_config.DateColumn(label="F. VENCIMIENTO (Editable)", format="DD/MM/YYYY"),
-                "ESTADO": st.column_config.TextColumn(label="ESTADO")
-            }
+        # ==============================================================================
+        # 🚀 CONSULTA DIRECTA AL BACKEND FILTRADO
+        # ==============================================================================
+        tuplas_lotes = crud_l.obtener_lotes_filtrados(
+            txt_universal=txt_universal,
+            txt_rango_stock=txt_rango_stock,
+            rango_vencimiento=rango_vencimiento,
+            opt_estado=opt_estado
         )
 
+        # Construcción de la matriz con los registros ya filtrados por el servidor SQL
+        filas_raw = []
+        if tuplas_lotes:
+            for lote_obj, insumo_obj in tuplas_lotes:
+                ved = insumo_obj.clasificacion_ved.value if hasattr(insumo_obj.clasificacion_ved, "value") else insumo_obj.clasificacion_ved
+                ved_txt = 'VITAL' if ved=='V' else 'ESENCIAL' if ved=='E' else 'DESEABLE'
+                
+                filas_raw.append({
+                    "ID": lote_obj.id_lote,
+                    "INSUMO ASOCIADO": insumo_obj.nombre,
+                    "CÓDIGO DE LOTE": lote_obj.codigo_lote,
+                    "CLASIFICACIÓN VED": ved_txt,
+                    "STOCK DISPONIBLE": lote_obj.stock_disponible,  
+                    "FECHA VENCIMIENTO": lote_obj.fecha_vencimiento, 
+                    "UBICACIÓN FÍSICA": lote_obj.ubicacion_fisica,
+                    "ESTADO": "ACTIVO" if lote_obj.activo else "INACTIVO"
+                })
+
+        # CORRECCIÓN SOLUCIÓN 1: Si no hay datos, creamos el DataFrame completamente limpio sin filas falsas
+        if filas_raw:
+            df_lotes = pd.DataFrame(filas_raw)
+        else:
+            df_lotes = pd.DataFrame(columns=["ID", "INSUMO ASOCIADO", "CÓDIGO DE LOTE", "CLASIFICACIÓN VED", "STOCK DISPONIBLE", "FECHA VENCIMIENTO", "UBICACIÓN FÍSICA", "ESTADO"])
+
+        # Renderizado dinámico de títulos informativos basados en la respuesta del backend
+        total_filtrados = len(df_lotes) if filas_raw else 0
+        contenedor_titulo.markdown(
+            f"<h2 style='margin-bottom: 0;'>📦 Control de Existencias por Lotes ({total_filtrados} en pantalla)</h2>", 
+            unsafe_allow_html=True
+        )
+
+        contenedor_guardar_modificacion = st.empty()
+
         # ==============================================================================
-        # 💾 DETECTOR DE CAMBIOS Y SINCRONIZACIÓN ATÓMICA CON SQLITE
+        # 📟 MOTOR DE PAGINACIÓN LOCAL (De 50 en 50)
         # ==============================================================================
+        REGISTROS_POR_PAGINA = 50
+        total_paginas = math.ceil(total_filtrados / REGISTROS_POR_PAGINA) if total_filtrados > 0 else 1
+
+        if st.session_state["pagina_lotes"] > total_paginas:
+            st.session_state["pagina_lotes"] = 1
+
+        inicio = (st.session_state["pagina_lotes"] - 1) * REGISTROS_POR_PAGINA
+        fin = inicio + REGISTROS_POR_PAGINA
+        df_pagina_actual = df_lotes.iloc[inicio:fin]
+
+        # Traemos los nombres de insumos disponibles en la BD para que la celda "INSUMO ASOCIADO" sea un Selectbox editable
+        lista_insumos_bd = crud_ins.obtener_insumos(solo_activos=True)
+        nombres_insumos_opciones = [ins.nombre for ins in lista_insumos_bd] if lista_insumos_bd else []
+
+        # ==============================================================================
+        # 📉 RENDIMIENTO EN PANTALLA (GRID)
+        # ==============================================================================
+        st.write("")
+        
         if puede_editar:
-            estado_edicion = st.session_state.get("editor_lotes", {})
+            st.caption("💡 **Modo Operador:** Puede corregir el código de lote, reasignar el insumo base o cambiar estanterías directamente en las celdas de la grilla.")
+
+            # CORRECCIÓN SOLUCIÓN 2: Habilitamos la edición y configuramos el Insumo Asociado
+            grilla_editada = st.data_editor(
+                df_pagina_actual,
+                use_container_width=True,
+                hide_index=True,
+                height=380,
+                key="editor_lotes_grilla",
+                disabled=["ID", "CLASIFICACIÓN VED", "STOCK DISPONIBLE"], # Solo bloqueamos lo netamente calculado
+                column_config={
+                    "ID": st.column_config.NumberColumn(format="%d", width=40),
+                    "INSUMO ASOCIADO": st.column_config.SelectboxColumn(options=nombres_insumos_opciones, width="medium", required=True),
+                    "CÓDIGO DE LOTE": st.column_config.TextColumn(width="medium", required=True),
+                    "CLASIFICACIÓN VED": st.column_config.TextColumn(label='VED', width="small"),
+                    "STOCK DISPONIBLE": st.column_config.NumberColumn(label='STOCK DISP.', format="%d unds.", width="small"),
+                    "FECHA VENCIMIENTO": st.column_config.DateColumn(label="F. VENCIMIENTO", format="DD/MM/YYYY", width=120),
+                    "UBICACIÓN FÍSICA": st.column_config.TextColumn(width="medium"),
+                    "ESTADO": st.column_config.SelectboxColumn(options=["ACTIVO", "INACTIVO"], required=True, width='small'),
+                }
+            )
+
+            # Sincronización y persistencia de ediciones masivas utilizando los IDs reales
+            estado_edicion = st.session_state.get("editor_lotes_grilla", {})
             cambios_detectados = estado_edicion.get("edited_rows", {}) if isinstance(estado_edicion, dict) else {}
             
-            if cambios_detectados:
+            if cambios_detectados and not df_pagina_actual.empty:
                 with contenedor_guardar_modificacion:
-                    st.warning("⚠️ Se detectaron modificaciones locales en las propiedades de los lotes.")
+                    st.warning("⚠️ Hay modificaciones de lotes en la grilla pendientes por subir.")
                     
-                    # Traducimos las filas modificadas de la pantalla a IDs de la base de datos
                     diccionario_cambios_bd = {}
                     for indice_fila, modificaciones in cambios_detectados.items():
-                        id_real_bd = df_lotes.iloc[int(indice_fila)]["ID"]
+                        id_real_bd = df_pagina_actual.iloc[int(indice_fila)]["ID"]
                         diccionario_cambios_bd[str(id_real_bd)] = modificaciones
                     
                     c_save, _ = st.columns([1.5, 4])
                     with c_save:
                         if st.button("💾 GUARDAR CAMBIOS DE LOTES", use_container_width=True, type="primary"):
-                            # 🚀 Ejecutamos la función en el backend y guardamos su respuesta
                             resultado = crud_l.actualizar_registros_lotes_masivo(diccionario_cambios_bd)              
-                            # 🔍 EVALUAMOS QUÉ NOS DEVOLVIÓ EL BACKEND:
-                            if resultado == "DUPLICADO":
-                                # 🛑 Si devolvió "DUPLICADO", pintamos el mensaje de error en pantalla
-                                with _:
-                                    st.error("🛑 Error: El código de lote que ingresaste ya existe en el sistema.")
-                            elif resultado is True:
-                                # ✔️ Si todo salió bien, guardamos con éxito y recargamos
-                                st.success("¡Propiedades de lotes actualizadas con éxito!")
-                                time.sleep(1.5)
+                            if resultado == True:
+                                st.success("✔️ ¡Lotes actualizados con éxito!")
+                                time.sleep(1.2)
                                 st.rerun()
-                            else:
-                                # 🚨 Por si ocurre cualquier otro error imprevisto
-                                with _:
-                                    st.error(f"Fallo operativo insospechado: {resultado}")
+                            st.error(resultado)
+        else:
+            st.dataframe(
+                df_pagina_actual,
+                use_container_width=True,
+                hide_index=True,
+                height=380,
+                column_config={
+                    "ID": st.column_config.NumberColumn(format="%d"),
+                    "STOCK DISPONIBLE": st.column_config.NumberColumn(format="%d u.")
+                }
+            )
+
+        if df_pagina_actual.empty:
+            st.info("ℹ️ No existen lotes en la base de datos que coincidan con los filtros aplicados.")
+
+        # ==============================================================================
+        # 📟 BOTONES DE CONTROL DE PÁGINAS (LOTES)
+        # ==============================================================================
+        st.write("")
+        c_pag1, c_pag2, c_pag3 = st.columns([1.5, 2, 1.5])
+        
+        with c_pag2:
+            pag_vis = st.session_state["pagina_lotes"]
+            st.markdown(f"<p style='text-align:center; color:gray;'>Página <b>{pag_vis}</b> de {total_paginas}</p>", unsafe_allow_html=True)
+            
+        with c_pag1:
+            if st.button("⬅️ Anterior", use_container_width=True, key="btn_l_ant", disabled=(st.session_state["pagina_lotes"] == 1)):
+                st.session_state["pagina_lotes"] -= 1
+                st.rerun()
+                
+        with c_pag3:
+            if st.button("Siguiente ➡️", use_container_width=True, key="btn_l_sig", disabled=(st.session_state["pagina_lotes"] >= total_paginas)):
+                st.session_state["pagina_lotes"] += 1
+                st.rerun()
+
+    except Exception as e:
+            print(f"Error crítico en la vista de Lotes: {e}")
