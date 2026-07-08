@@ -49,7 +49,7 @@ def Vista_Login():
                     st.session_state["user_nombre_completo"] = f"{resultado.nombres} {resultado.apellidos}"
 
                     # 2. 📌 EL TRUCO: Congelamos la ejecución por 1.5 segundos para que dé tiempo de leer
-                    time.sleep(2.0)
+                    time.sleep(1.5)
                     
                     # Forzamos la recarga de Streamlit para que dibuje el menú principal del sistema
                     st.rerun()

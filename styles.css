@@ -175,3 +175,27 @@ h1, h2, h3 {
     border-color: #047857 !important;
     color: #ffffff !important;
 }
+
+/* Forzar estilos de fondo tipo badge dentro de las celdas de Streamlit */
+div[data-testid="stDataFrame"] table td, 
+div[data-testid="stDataEditor"] table td {
+    text-align: center !important;
+}
+
+/* Colores de Alerta para las celdas de la columna VED */
+.ved-v {
+    background-color: #ffcccc !important;
+    color: #cc0000 !important;
+    font-weight: bold !important;
+}
+
+.ved-e {
+    background-color: #fff3cd !important;
+    color: #856404 !important;
+    font-weight: bold !important;
+}
+
+.ved-d {
+    background-color: #d4edda !important;
+    color: #155724 !important;
+}

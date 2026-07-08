@@ -1,8 +1,9 @@
 from sqlmodel import Session, select
 from sqlalchemy.orm import selectinload, joinedload
-from models import engine, Insumos, Usuarios, Lotes, Entradas, DetallesSalida, obtener_sesion_bd
+from models import engine, Insumos, Usuarios, Lotes, Entradas, Salidas, DetallesSalida, Estado, obtener_sesion_bd
 from datetime import date
 from typing import List
+import math
 
 # ==============================================================================
 # 📦 1. PIPELINES DE PERSISTENCIA Y CONSULTA PARA INSUMOS (CATÁLOGO)
@@ -13,54 +14,191 @@ def crear_insumo(nombre: str, ved: str) -> Insumos:
     Inserta un nuevo registro de insumo maestro en la base de datos.
     Fuerza la limpieza de espacios en blanco y retorna la instancia con su ID autogenerado.
     """
-    with obtener_sesion_bd() as session:
-        nuevo = Insumos(nombre=nombre.strip(), clasificacion_ved=ved)
-        session.add(nuevo)
-        session.commit()
-        session.refresh(nuevo) # Sincroniza el objeto local con la clave primaria generada por SQLite
-        return nuevo
+    try:
+        with obtener_sesion_bd() as session:
+            nuevo = Insumos(nombre=nombre.strip(), clasificacion_ved=ved)
+            session.add(nuevo)
+            session.commit()
+            session.refresh(nuevo) # Sincroniza el objeto local con la clave primaria generada por SQLite
+            return nuevo
+    except Exception as e:
+            print(f"🛑 Error crítico en crear_insumos: {e}")
 
-def obtener_todos_insumos() -> List[Insumos]:
-    """
-    [CRÍTICO] -> Resuelve el DetachedInstanceError en Streamlit.
-    Ejecuta una consulta profunda utilizando 'selectinload'. Carga en un solo viaje 
-    los Insumos, sus Lotes adjuntos, y las sub-relaciones de Entradas y Salidas de cada lote.
-    Mantiene todos los datos en memoria RAM listos para las propiedades dinámicas de cálculo de stock.
-    """
-    with obtener_sesion_bd() as session:
+
+def obtener_insumos(
+    solo_activos: bool= False,                
+    txt_buscar: str= "",                       # Entrada de la barra única (Nombre/VED)
+    opt_estado: str= "ACTIVOS",                # Selector administrativo del catálogo
+):
+    with Session(engine) as session:
         try:
-            # Construcción de la consulta con precarga encadenada por subconsultas optimizadas
-            statement = (
-                select(Insumos).options(
-                    selectinload(Insumos.lotes).options(
-                        selectinload(Lotes.entrada),          # Requerido para stock_inicial
-                        selectinload(Lotes.detalles_salida)   # Requerido para consumos de stock
-                    )
+            condiciones = []
+            
+            # Filtro de Estado administrativo
+            if solo_activos:
+                condiciones.append(Insumos.activo == True)
+            else:
+                if opt_estado == "ACTIVOS":
+                    condiciones.append(Insumos.activo == True)
+                elif opt_estado == "INACTIVOS":
+                    condiciones.append(Insumos.activo == False)
+
+            # Buscador básico por texto/VED en Base de Datos
+            if txt_buscar:
+                busqueda = txt_buscar.strip().upper()
+                letra_ved = {"VITAL": "V", "ESENCIAL": "E", "DESEABLE": "D"}.get(busqueda)
+                if letra_ved:
+                    condiciones.append(Insumos.clasificacion_ved == letra_ved)
+                else:
+                    condiciones.append(Insumos.nombre.like(f"%{txt_buscar}%"))
+
+            # Consulta maestra con tu precarga profunda original
+            statement = select(Insumos).where(*condiciones).options(
+                selectinload(Insumos.lotes).options(
+                    selectinload(Lotes.entrada),
+                    selectinload(Lotes.detalles_salida).selectinload(DetallesSalida.salida)
                 )
             )
+            
+            # Retorna absolutamente TODOS los registros coincidentes de golpe
             return session.exec(statement).all()
+            
+        except Exception as e:
+            print(f"🛑 Error crítico en obtener_insumos: {e}")
+            return []
+        
+
+
+def obtener_insumos_con_paginacion(  # FUNCION DESCARTADA
+    solo_activos: bool= False,                
+    txt_buscar: str= "",                       # Entrada de la barra única (Nombre/VED)
+    txt_rango_stock: str= "",                  # Rango numérico de existencias
+    opt_estado: str= "ACTIVOS",                # Selector administrativo del catálogo
+    pagina_actual: int= 1,                     # Control de posición para la grilla
+    registros_por_pagina: int=50              # Tamaño del fragmento visual
+):
+    with Session(engine) as session:
+        try:
+            condiciones = []         # Lista para acumular los filtros WHERE 
+            
+            # 1. FILTRO DE ESTADO ADMINISTRATIVO
+            if solo_activos:
+                condiciones.append(Insumos.activo == True)
+            else:
+                if opt_estado == "ACTIVOS":
+                    condiciones.append(Insumos.activo == True)
+                elif opt_estado == "INACTIVOS":
+                    condiciones.append(Insumos.activo == False)
+
+            # 2. BUSCADOR UNIVERSAL (Nombre comercial o Clasificación VED traducida)
+            if txt_buscar:
+                busqueda = txt_buscar.strip().upper()
+                letra_ved = {"VITAL": "V", "ESENCIAL": "E", "DESEABLE": "D"}.get(busqueda)
+                
+                if letra_ved:
+                    condiciones.append(Insumos.clasificacion_ved == letra_ved) # Busca letra exacta #
+                else:
+                    condiciones.append(Insumos.nombre.like(f"%{txt_buscar}%")) # Coincidencia parcial #
+
+            # 3. CONSTRUCCIÓN DEL STATEMENT BASE CON TU FILTRADO ORIGINAL EN CASCADA
+            statement = select(Insumos).where(*condiciones).options(
+                selectinload(Insumos.lotes).options(
+                    selectinload(Lotes.entrada),
+                    selectinload(Lotes.detalles_salida).selectinload(DetallesSalida.salida)
+                )
+            )
+
+            # 🎯 CASO A: SI EL USUARIO FILTRA POR STOCK (Segmentamos en RAM)
+            if txt_rango_stock:
+                todos_coincidentes = session.exec(statement).all() # Trae los filtrados con sus relaciones #
+                
+                try:
+                    if "-" in txt_rango_stock:
+                        partes = txt_rango_stock.split("-")
+                        val_min = int(partes[0].strip()) if partes[0].strip() else 0
+                        val_max = int(partes[1].strip()) if partes[1].strip() else 999999
+                    else:
+                        val_min = int(txt_rango_stock)
+                        val_max = 999999
+                    
+                    # Filtramos usando @property total_stock que ya lee la RAM perfectamente 
+                    filtrados_por_stock = [ins for ins in todos_coincidentes if val_min <= ins.total_stock <= val_max]
+                except ValueError:
+                    filtrados_por_stock = todos_coincidentes
+                
+                total_registros = len(filtrados_por_stock)
+                total_paginas = math.ceil(total_registros / registros_por_pagina)
+                
+                inicio = (pagina_actual - 1) * registros_por_pagina
+                fin = inicio + registros_por_pagina
+                resultados_paginados = filtrados_por_stock[inicio:fin]
+
+            # 🎯 CASO B: FLUJO GENERAL / SIN FILTRO DE STOCK (Paginación pura en BD)
+            else:
+                # Contamos de forma ligera los registros totales que cumplen texto/estado 
+                count_stmt = select(Insumos).where(*condiciones)
+                total_registros = len(session.exec(count_stmt).all())
+                total_paginas = math.ceil(total_registros / registros_por_pagina)
+                
+                # Aplicamos LIMIT y OFFSET manteniendo la precarga para los 50 registros de la página 
+                offset_val = (pagina_actual - 1) * registros_por_pagina
+                statement = statement.limit(registros_por_pagina).offset(offset_val)
+                
+                resultados_paginados = session.exec(statement).all()
+
+            # Retornamos la tupla con los datos y el conteo de páginas 
+            return resultados_paginados, total_paginas
+            
         except Exception as e:
             print(f"🛑 Error crítico en obtener_todos_insumos: {e}")
-            return []
-
-def actualizar_insumo(id_insumo: int, nuevo_nombre: str, nuevo_ved: str) -> bool:
-    """
-    Busca un insumo mediante su ID y actualiza sus atributos básicos.
-    Retorna True si la mutación fue exitosa, False si el registro no existía.
-    """
-    with obtener_sesion_bd() as session:
-        db_insumo = session.get(Insumos, id_insumo)
-        if not db_insumo:
-            return False
+            return [], 1
         
-        db_insumo.nombre = nuevo_nombre.strip()
-        db_insumo.clasificacion_ved = nuevo_ved
 
-        session.add(db_insumo)
-        session.commit()
-        session.refresh(db_insumo)
-        return True
+def actualizar_catalogo_insumos_masivo(cambios_dict: dict) -> bool:
+    """Procesa modificaciones y bajas lógicas en cascada desde la grilla."""
+    with Session(engine) as session:
+        try:
+            for id_ins_str, campos in cambios_dict.items():
+                # Busca el insumo en la BD usando su ID
+                insumo_bd = session.get(Insumos, int(id_ins_str))
+                
+                if insumo_bd:
+                    # Si la celda "ESTADO" fue editada en la grilla
+                    if "ESTADO" in campos:
+                        nuevo_estado= (campos["ESTADO"].upper() == "ACTIVO")  # True si es ACTIVO, False si es INACTIVO
+                        insumo_bd.activo= nuevo_estado  # Actualiza el estado del insumo
+                        
+                        # SI EL INSUMO TIENE LOTES ACTIVOS, MANDA MENSAJE DE ERROR
+                        for lote in insumo_bd.lotes:
+                            if nuevo_estado==False and lote.activo==True:
+                                raise ValueError("No se puede desactivar el insumo porque tiene lotes asociados")
+                            
+                    # Edición de nombre 
+                    if "NOMBRE DEL INSUMO" in campos:
+                        insumo_bd.nombre = str(campos["NOMBRE DEL INSUMO"]).strip().upper()
+                        if insumo_bd.nombre==None or insumo_bd.nombre=='':
+                            raise ValueError("​ El nombre de los insumos es un dato obligatorio ")
 
+                    # Edición de clasificación VED 
+                    if "CLASIFICACIÓN VED" in campos:
+                        insumo_bd.clasificacion_ved = campos["CLASIFICACIÓN VED"][0]
+                        if insumo_bd.nombre==None or insumo_bd.nombre=='':
+                            raise ValueError("​ La clasificación VED es obligatoria ")
+                    
+                    session.add(insumo_bd)  # Registra el insumo modificado en la sesión
+                    
+            session.commit()  # 💾 Guarda los cambios de insumos en un solo viaje
+            return True
+        
+        except ValueError as e:
+            session.rollback()
+            return f"✖️ REGLA LOGÍSTICA: {str(e)}"
+        except Exception as e:
+            session.rollback()
+            return f"✖️ FALLA CRÍTICA EN BASE DE DATOS: {str(e)}"
+
+
+# NO ESTÁ EN USO ESTA FUNCIÓN
 def eliminar_insumo(id_insumo: int) -> bool:
     """Elimina físicamente un insumo del catálogo mediante su Clave Primaria."""
     with obtener_sesion_bd() as session:
@@ -72,79 +210,3 @@ def eliminar_insumo(id_insumo: int) -> bool:
         return False
 
 
-# ==============================================================================
-# 📥 2. CONTROL TRANSACCIONAL DE INVENTARIO (LOTES Y ENTRADAS)
-# ==============================================================================
-
-def registrar_ingreso_inventario(id_insumo: int, codigo_lote: str, fecha_vencimiento: date, 
-                                 ubicacion_fisica: str, cantidad: int, id_usuario: int, 
-                                 fecha_pedido: date) -> bool:
-    """
-    [ATÓMICO] -> Garantiza la Integridad Referencial de los Almacenes.
-    Registra en un solo bloque el Lote físico y asienta su Acta de Entrada.
-    Si el lote falla (ej: código duplicado), el rollback automático evita la creación 
-    de actas de entradas huérfanas en el sistema.
-    """
-    with obtener_sesion_bd() as session:
-        try:
-            # 1. Instanciación e inserción del contenedor físico (Lote)
-            nuevo_lote = Lotes(
-                id_insumo=id_insumo,
-                codigo_lote=codigo_lote.strip().upper(),
-                fecha_vencimiento=fecha_vencimiento,
-                ubicacion_fisica=ubicacion_fisica.strip()
-            )
-            session.add(nuevo_lote)
-            session.flush() # Comunica con la BD para obtener el id_lote sin cerrar la ventana transaccional
-            
-            # 2. Vinculación del acta de entrada documental usando la llave foránea obtenida
-            nueva_entrada = Entradas(
-                id_lote=nuevo_lote.id_lote,
-                id_usuario=id_usuario,
-                fecha_pedido=fecha_pedido,
-                cantidad=cantidad
-            )
-            session.add(nueva_entrada)
-            
-            # Consolidación final unificada en disco
-            session.commit()
-            return True
-        except Exception as e:
-            session.rollback() # Revierte todos los cambios parciales ante fallos
-            print(f"❌ Error crítico en la transacción de ingreso: {e}")
-            return False
-
-def obtener_historial_entradas() -> List[Entradas]:
-    """
-    Recupera el historial de ingresos ordenados de forma cronológica descendente.
-    Aplica 'joinedload' para traer de forma inmediata la información del lote y del insumo acoplado.
-    """
-    with obtener_sesion_bd() as session:
-        statement = (
-            select(Entradas).options(
-                joinedload(Entradas.lote).joinedload(Lotes.insumo)
-            ).order_by(Entradas.fecha_recepcion.desc())
-        )
-        return session.exec(statement).all()
-
-def eliminar_lote_vacio(id_lote: int) -> bool:
-    """
-    Elimina un lote técnico y su entrada correspondiente SI Y SOLO SI no ha tenido
-    ningún movimiento de despacho, blindando la integridad histórica de auditorías.
-    """
-    with obtener_sesion_bd() as session:
-        lote = session.get(Lotes, id_lote)
-        if not lote:
-            return False
-        try:
-            if lote.detalles_salida:
-                return False # Bloqueo logístico: No se pueden borrar lotes con salidas registradas
-            
-            if lote.entrada:
-                session.delete(lote.entrada) # Remueve primero el documento de entrada asociado
-            session.delete(lote)             # Remueve el contenedor del lote
-            session.commit()
-            return True
-        except Exception as e:
-            print(f"❌ Error al intentar eliminar el lote: {e}")
-            return False
