@@ -10,10 +10,10 @@ jobs:
 
     steps:
     - name: 1. Descargar codigo del repositorio
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4 # Actualizado a v4 para evitar advertencias
 
     - name: 2. Configurar entorno de Python (Tu versión local)
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5 # Actualizado a v5 para mayor estabilidad
       with:
         python-version: '3.8'
 
@@ -21,7 +21,13 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        # 📌 Respaldo obligatorio por si pytest o sqlmodel no están fijos en tu requirements.txt
+        pip install pytest sqlmodel pydantic 
 
     - name: 4. Verificación inicial de sintaxis (Linter)
       run: |
         python -m compileall .
+
+    - name: 5. Ejecutar Suite de Pruebas Unitarias del SIAL-MED
+      run: |
+        python -m pytest
