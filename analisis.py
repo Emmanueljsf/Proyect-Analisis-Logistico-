@@ -85,11 +85,9 @@ def Vista_Dashboard_Logistico():
         # ==========================================================================
         with tab_abastecimiento:
             st.subheader("📋 Estado General de Abastecimiento de Medicamentos")
-            st.caption(
-                "El Punto de Reorden (ROP) se calcula mediante el modelado advanced de criticidad VED: "
-                "Insumos Vitales (Máximo tiempo de espera + 3 días), Esenciales (Máximo tiempo de espera) "
-                "y Deseables (Tiempo de espera promedio real)."
-            )
+            #st.caption(
+                
+            #)
 
             # Filtro interactivo rápido por estado del semáforo
             opciones_semaforo = ["TODOS"] + list(df_rop["semaforo"].unique())
