@@ -13,7 +13,7 @@ def usuario_tiene_permiso_escritura() -> bool:
     rol_usuario = st.session_state.get("user_rol", None)
     return es_autenticado and (rol_usuario in ROLES_AUTORIZADOS)
 
-def Vista_Control_Lotes():
+def Vista_Control_Lotes()
     """
     Renderiza la perspectiva analítica de inventarios clasificada por lotes de fábrica.
     """

@@ -1,5 +1,5 @@
 import streamlit as st
-import pan as pd  
+import pandas as pd  
 import CRUDs.crud_lotes_entradas as crud_le  
 from datetime import date  
 import time  

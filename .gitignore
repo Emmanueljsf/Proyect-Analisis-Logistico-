@@ -17,5 +17,5 @@ session_cache.json
 .vscode/
 .idea/
 
-# informacion secreta
+# informacion confidencial
 .env
