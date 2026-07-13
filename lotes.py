@@ -3,6 +3,7 @@ import pandas as pd
 import CRUDs.crud_lotes_entradas as crud_l  
 import CRUDs.crud_insumos as crud_ins  # Importamos para obtener la lista de opciones de insumos
 from insumos1 import usuario_tiene_permiso_escritura
+from reportes import generar_reporte_lotes_excel, generar_reporte_lotes_pdf
 from datetime import date
 import time
 import math
@@ -36,7 +37,7 @@ def Vista_Control_Lotes():
             with f_col2:
                 txt_rango_stock = st.text_input(
                     "Rango Stock (Min-Max):", 
-                    placeholder="Ej: 10-50 o 0", 
+                    placeholder="Ej: 10-50 o 10", 
                     key="fl_stock"
                 ).strip()
                 
@@ -73,7 +74,10 @@ def Vista_Control_Lotes():
                 ved = insumo_obj.clasificacion_ved.value if hasattr(insumo_obj.clasificacion_ved, "value") else insumo_obj.clasificacion_ved
                 ved_txt = 'VITAL' if ved=='V' else 'ESENCIAL' if ved=='E' else 'DESEABLE'
                 
-                filas_raw.append({
+                # 🛠️ Recuperamos el motivo de desactivación real del objeto de la BD
+                motivo = lote_obj.motivo_desactivacion if lote_obj.motivo_desactivacion else ""
+                
+                registro = {
                     "ID": lote_obj.id_lote,
                     "INSUMO ASOCIADO": insumo_obj.nombre,
                     "CÓDIGO DE LOTE": lote_obj.codigo_lote,
@@ -82,20 +86,84 @@ def Vista_Control_Lotes():
                     "FECHA VENCIMIENTO": lote_obj.fecha_vencimiento, 
                     "UBICACIÓN FÍSICA": lote_obj.ubicacion_fisica,
                     "ESTADO": "ACTIVO" if lote_obj.activo else "INACTIVO"
-                })
+                }
+                
+                # 🔄 CONDICIÓN: Se añade la columna al diccionario si el estado no es meramente "ACTIVOS"
+                if opt_estado != "ACTIVOS":
+                    registro["MOTIVO DESACTIVACIÓN"] = motivo
+                    
+                filas_raw.append(registro)
 
-        # CORRECCIÓN SOLUCIÓN 1: Si no hay datos, creamos el DataFrame completamente limpio sin filas falsas
+        # Si no hay datos, creamos las columnas base limpias respetando el filtro dinámico
         if filas_raw:
             df_lotes = pd.DataFrame(filas_raw)
         else:
-            df_lotes = pd.DataFrame(columns=["ID", "INSUMO ASOCIADO", "CÓDIGO DE LOTE", "CLASIFICACIÓN VED", "STOCK DISPONIBLE", "FECHA VENCIMIENTO", "UBICACIÓN FÍSICA", "ESTADO"])
+            columnas_base = ["ID", "INSUMO ASOCIADO", "CÓDIGO DE LOTE", "CLASIFICACIÓN VED", "STOCK DISPONIBLE", "FECHA VENCIMIENTO", "UBICACIÓN FÍSICA", "ESTADO"]
+            if opt_estado != "ACTIVOS":
+                columnas_base.append("MOTIVO DESACTIVACIÓN")
+            df_lotes = pd.DataFrame(columns=columnas_base)
 
         # Renderizado dinámico de títulos informativos basados en la respuesta del backend
         total_filtrados = len(df_lotes) if filas_raw else 0
         contenedor_titulo.markdown(
-            f"<h2 style='margin-bottom: 0;'>📦 Control de Existencias por Lotes ({total_filtrados} en pantalla)</h2>", 
+            f"<h2 style='margin-bottom: 0;'>📦 Control de Existencias por Lotes ({total_filtrados} registros filtrados)</h2>", 
             unsafe_allow_html=True
         )
+
+
+        # BOTONES DE REPORTES
+        if st.session_state.get("user_rol") == "Administrador":
+            usuario_actual = st.session_state.get("user_nombre_completo", "ADMINISTRADOR SIAL-MED")
+            
+            f_stock = txt_rango_stock if 'txt_rango_stock' in locals() else ""
+            f_vencimiento = rango_vencimiento if 'rango_vencimiento' in locals() else None
+            f_estado = opt_estado if 'opt_estado' in locals() else "ACTIVOS"
+            
+            col_excel, col_pdf, _ = st.columns([2, 2, 2])
+            
+            with col_excel:
+                # 1. Creamos el botón disparador para evitar consultas automáticas
+                if st.button("📊 Generar Reporte en Excel (.xlsx)", use_container_width=True, key="btn_trigger_excel"):
+                    with st.spinner("Procesando Excel..."):
+                        
+                        # 2. La consulta a la BD SOLO ocurre AQUÍ tras hacer clic
+                        datos_l_excel = generar_reporte_lotes_excel(txt_universal, f_stock, f_vencimiento, f_estado, usuario_actual)
+                        
+                        if datos_l_excel:
+                            # 3. Si hay datos, habilitamos el botón nativo de descarga
+                            st.download_button(
+                                label="⬇️ Descargar Archivo Excel (.xlsx)",
+                                data=datos_l_excel,
+                                file_name=f"SIALMED_Inventario_Lotes_{f_estado}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True,
+                                key="btn_download_lotes_excel"
+                            )
+                        else:
+                            st.warning("No hay datos para el filtro seleccionado.")
+            
+            # SECCIÓN: REPORTE EN PDF
+            with col_pdf:
+                # 1. Creamos el botón disparador para evitar consultas automáticas
+                if st.button("📄 Generar Reporte en PDF", use_container_width=True, key="btn_trigger_pdf"):
+                    with st.spinner("Procesando PDF..."):
+                        
+                        # 2. La consulta a la BD SOLO ocurre AQUÍ tras hacer clic
+                        datos_l_pdf = generar_reporte_lotes_pdf(txt_universal, f_stock, f_vencimiento, f_estado, usuario_actual)
+                        
+                        if datos_l_pdf:
+                            # 3. Si hay datos, habilitamos el botón nativo de descarga
+                            st.download_button(
+                                label="⬇️ Descargar Archivo PDF",
+                                data=datos_l_pdf,
+                                file_name=f"SIALMED_Inventario_Lotes_{f_estado}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True,
+                                key="btn_download_lotes_pdf"
+                            )
+                        else:
+                            st.warning("No hay datos para el filtro seleccionado.")
+        
 
         contenedor_guardar_modificacion = st.empty()
 
@@ -112,36 +180,42 @@ def Vista_Control_Lotes():
         fin = inicio + REGISTROS_POR_PAGINA
         df_pagina_actual = df_lotes.iloc[inicio:fin]
 
-        # Traemos los nombres de insumos disponibles en la BD para que la celda "INSUMO ASOCIADO" sea un Selectbox editable
-        lista_insumos_bd = crud_ins.obtener_insumos(solo_activos=True)
+        # Traemos los nombres de insumos disponibles en la BD para el Selectbox editable
+        lista_insumos_bd = crud_ins.obtener_insumos(solo_activos=False, opt_estado='TODOS') # <<- ACORDATE DE VERIFICAR ESTO
         nombres_insumos_opciones = [ins.nombre for ins in lista_insumos_bd] if lista_insumos_bd else []
 
         # ==============================================================================
-        # 📉 RENDIMIENTO EN PANTALLA (GRID)
+        # 📉 RENDIMIENTO EN PANTALLA (GRID CONFIGURADO)
         # ==============================================================================
         st.write("")
         
         if puede_editar:
-            st.caption("💡 **Modo Operador:** Puede corregir el código de lote, reasignar el insumo base o cambiar estanterías directamente en las celdas de la grilla.")
+            st.caption("💡 **Modo Operador:** Puede corregir el código de lote, reasignar el insumo base, ajustar estanterías.")
 
-            # CORRECCIÓN SOLUCIÓN 2: Habilitamos la edición y configuramos el Insumo Asociado
+            # Base de configuración de columnas para st.data_editor
+            config_columnas = {
+                "ID": st.column_config.NumberColumn(format="%d", width=40),
+                "INSUMO ASOCIADO": st.column_config.SelectboxColumn(options=nombres_insumos_opciones, width="medium", required=True),
+                "CÓDIGO DE LOTE": st.column_config.TextColumn(width="medium", required=True),
+                "CLASIFICACIÓN VED": st.column_config.TextColumn(label='VED', width="small"),
+                "STOCK DISPONIBLE": st.column_config.NumberColumn(label='STOCK DISP.', format="%d unds.", width="small"),
+                "FECHA VENCIMIENTO": st.column_config.DateColumn(label="F. VENCIMIENTO", format="DD/MM/YYYY", width=120),
+                "UBICACIÓN FÍSICA": st.column_config.TextColumn(width="medium"),
+                "ESTADO": st.column_config.TextColumn(width='small'),
+            }
+
+            # Si estamos visualizando registros de baja, añadimos la configuración para la columna de motivos
+            if opt_estado != "ACTIVOS":
+                config_columnas["MOTIVO DESACTIVACIÓN"] = st.column_config.TextColumn(label="MOTIVO DE DESACTIVACION", width="medium")
+
             grilla_editada = st.data_editor(
                 df_pagina_actual,
                 use_container_width=True,
                 hide_index=True,
                 height=380,
                 key="editor_lotes_grilla",
-                disabled=["ID", "CLASIFICACIÓN VED", "STOCK DISPONIBLE"], # Solo bloqueamos lo netamente calculado
-                column_config={
-                    "ID": st.column_config.NumberColumn(format="%d", width=40),
-                    "INSUMO ASOCIADO": st.column_config.SelectboxColumn(options=nombres_insumos_opciones, width="medium", required=True),
-                    "CÓDIGO DE LOTE": st.column_config.TextColumn(width="medium", required=True),
-                    "CLASIFICACIÓN VED": st.column_config.TextColumn(label='VED', width="small"),
-                    "STOCK DISPONIBLE": st.column_config.NumberColumn(label='STOCK DISP.', format="%d unds.", width="small"),
-                    "FECHA VENCIMIENTO": st.column_config.DateColumn(label="F. VENCIMIENTO", format="DD/MM/YYYY", width=120),
-                    "UBICACIÓN FÍSICA": st.column_config.TextColumn(width="medium"),
-                    "ESTADO": st.column_config.SelectboxColumn(options=["ACTIVO", "INACTIVO"], required=True, width='small'),
-                }
+                disabled=["ID", "CLASIFICACIÓN VED", "STOCK DISPONIBLE", 'ESTADO'],
+                column_config=config_columnas
             )
 
             # Sincronización y persistencia de ediciones masivas utilizando los IDs reales
@@ -155,6 +229,12 @@ def Vista_Control_Lotes():
                     diccionario_cambios_bd = {}
                     for indice_fila, modificaciones in cambios_detectados.items():
                         id_real_bd = df_pagina_actual.iloc[int(indice_fila)]["ID"]
+                        
+                        # Mapeamos internamente el nombre de la grilla ("MOTIVO DESACTIVACIÓN") 
+                        # al atributo real del modelo de SQLModel ("motivo_desactivacion")
+                        if "MOTIVO DESACTIVACIÓN" in modificaciones:
+                            modificaciones["motivo_desactivacion"] = modificaciones.pop("MOTIVO DESACTIVACIÓN")
+                            
                         diccionario_cambios_bd[str(id_real_bd)] = modificaciones
                     
                     c_save, _ = st.columns([1.5, 4])
@@ -167,15 +247,20 @@ def Vista_Control_Lotes():
                                 st.rerun()
                             st.error(resultado)
         else:
+            # Configuración de solo lectura
+            config_lectura = {
+                "ID": st.column_config.NumberColumn(format="%d"),
+                "STOCK DISPONIBLE": st.column_config.NumberColumn(format="%d u.")
+            }
+            if opt_estado != "ACTIVOS":
+                config_lectura["MOTIVO DESACTIVACIÓN"] = st.column_config.TextColumn(label="MOTIVO DE BAJA")
+
             st.dataframe(
                 df_pagina_actual,
                 use_container_width=True,
                 hide_index=True,
                 height=380,
-                column_config={
-                    "ID": st.column_config.NumberColumn(format="%d"),
-                    "STOCK DISPONIBLE": st.column_config.NumberColumn(format="%d u.")
-                }
+                column_config=config_lectura
             )
 
         if df_pagina_actual.empty:
@@ -201,5 +286,8 @@ def Vista_Control_Lotes():
                 st.session_state["pagina_lotes"] += 1
                 st.rerun()
 
+        
+
     except Exception as e:
             print(f"Error crítico en la vista de Lotes: {e}")
+            st.error(f"Error crítico en la vista de Lotes: {e}")

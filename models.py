@@ -283,12 +283,12 @@ class Salidas(SQLModel, table=True):
             raise ValueError(f"El campo '{info}' no puede procesarse vacío.")
         return valor.strip().upper()
 
-class DetallesSalida(SQLModel, table=True): # NUEVA TABLA: Normalización del despacho de insumos
+class DetallesSalida(SQLModel, table=True): 
     __table_args__ = {"extend_existing": True}
     id_detalle_salida: Optional[int] = Field(default=None, primary_key=True)
     id_salida: int = Field(foreign_key="salidas.id_salida", ondelete="CASCADE", sa_column_kwargs={"nullable": False}) # Clave foránea al documento de salida maestro
-    id_lote: int = Field(foreign_key="lotes.id_lote", sa_column_kwargs={"nullable": False})     # Clave foránea al lote específico extraído
-    cantidad: int = Field(sa_column_kwargs={"nullable": False}) # Volumen numérico de artículos retirados de este lote en particular
+    id_lote: int = Field(foreign_key="lotes.id_lote", sa_column_kwargs={"nullable": False})    
+    cantidad: int = Field(sa_column_kwargs={"nullable": False}) 
     # Relaciones del Modelo DetallesSalida
     salida: Optional[Salidas] = Relationship(back_populates="detalles") # Conexión a la cabecera de la salida
     lote: Optional[Lotes] = Relationship(back_populates="detalles_salida") # Conexión al lote del insumo

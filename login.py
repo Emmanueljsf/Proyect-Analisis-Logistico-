@@ -2,7 +2,7 @@ import streamlit as st
 import CRUDs.crud_usuarios as crud_u  # Importamos la función de arriba
 import time # Librería nativa para controlar el tiempo
 
-def Vista_Login():
+def Vista_Login(credenciales_primer_uso=None):
     """
     Gestiona la interfaz del formulario de control de acceso y autenticación del sistema.
     Valida las credenciales introducidas, procesa las respuestas lógicas de seguridad 
@@ -18,6 +18,22 @@ def Vista_Login():
     st.markdown("<h2 style='text-align: center;'>🔐 SIAL-MED</h2>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: gray;'>Sistema de Análisis Logístico de Insumos Médicos</p>", unsafe_allow_html=True)
     
+
+    # PANELES DE ALERTA DE PRIMER ACCESO
+    if credenciales_primer_uso:
+        st.info(
+            f"""
+            ### 🚀 Inicialización del Sistema Detectada
+            La base de datos operativa está limpia. Se ha autogenerado un usuario de control con privilegios de Administrador.
+            * **Usuario:** `{credenciales_primer_uso['username']}`
+            * **Contraseña:** `{credenciales_primer_uso['password']}`
+            
+            *Por seguridad, use estas credenciales para configurar el personal real en el módulo de gestión. Luego edite el usuario 
+            para que concuerde con sus datos (si no cambia el nombre de usuario, seguira mostrandose este mensaje)*
+            """
+        )
+
+
     # Creamos un contenedor centrado y estético para el formulario
     with st.container(border=True):
         st.subheader("Inicio de Sesión")
@@ -58,3 +74,4 @@ def Vista_Login():
                     
                     # Forzamos la recarga de Streamlit para que dibuje el menú principal del sistema
                     st.rerun()
+                    

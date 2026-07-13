@@ -2,6 +2,11 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from analisis_logistico import calcular_metricas_analiticas_sialmed
+# Importación de las funciones de reporte de SIAL-MED
+# (Ajusta el path de importación según la estructura de tus archivos)
+from reportes_analisis import generar_reporte_rop_excel, generar_reporte_caducidad_excel
+from models import Rol
+
 
 def Vista_Dashboard_Logistico():
     """
@@ -10,17 +15,13 @@ def Vista_Dashboard_Logistico():
     del Destacamento 134 mediante componentes visuales interactivos de Streamlit y Plotly Express.
     """
     try:
+        # Se asume un usuario emisor en sesión. Ajustar según tu sistema de autenticación.
+
         st.title("📊 Panel de Inteligencia Logística y Análisis de Stock")
         st.markdown(
             "Módulo analítico predictivo para optimizar el reabastecimiento "
             "y mitigar mermas por caducidad en el Destacamento 134 (Dabajuro)."
         )
-
-        # --------------------------------------------------------------------------
-        # EXTRACCIÓN DE DATOS PROCESADOS POR EL BACKEND
-        # --------------------------------------------------------------------------
-        with st.spinner("Ejecutando algoritmos logísticos en tiempo real..."):
-            df_rop, df_caducidad = calcular_metricas_analiticas_sialmed()
 
         # --------------------------------------------------------------------------
         # ⚡ EXTRACCIÓN DE DATOS PROCESADOS POR EL BACKEND
@@ -85,35 +86,59 @@ def Vista_Dashboard_Logistico():
         with tab_abastecimiento:
             st.subheader("📋 Estado General de Abastecimiento de Medicamentos")
             st.caption(
-                "El Punto de Reorden (ROP) se calcula mediante el modelado avanzado de criticidad VED: "
+                "El Punto de Reorden (ROP) se calcula mediante el modelado advanced de criticidad VED: "
                 "Insumos Vitales (Máximo tiempo de espera + 3 días), Esenciales (Máximo tiempo de espera) "
                 "y Deseables (Tiempo de espera promedio real)."
             )
 
             # Filtro interactivo rápido por estado del semáforo
             opciones_semaforo = ["TODOS"] + list(df_rop["semaforo"].unique())
-            filtro_sem = st.selectbox("Filtrar por Estado de Alerta:", opciones_semaforo)
+            
+            # Colocamos el filtro y los botones de reportes alineados horizontalmente
+            col_filtro_rop, _, col_btn_xls_rop = st.columns([2, 1, 1])
+            
+            with col_filtro_rop:
+                filtro_sem = st.selectbox("Filtrar por Estado de Alerta:", opciones_semaforo, label_visibility="collapsed")
 
             df_rop_render = df_rop.copy()
             if filtro_sem != "TODOS":
                 df_rop_render = df_rop_render[df_rop_render["semaforo"] == filtro_sem]
 
+            # Diccionario con metadatos del filtro actual para inyectar en el reporte
+            filtros_rop_aplicados = {"Estado de Alerta Semáforo": filtro_sem}
+
+            
+            if st.session_state.get("user_rol") == Rol.Administrador:
+            
+                usuario_actual = st.session_state.get("user_nombre_completo", "OPERADOR SIAL-MED")
+                with col_btn_xls_rop:
+                    # Botón de Descargar Excel
+                    excel_data_rop = generar_reporte_rop_excel(df_rop_render, filtros_rop_aplicados, usuario_actual)
+                    st.download_button(
+                        label="📊 Generar reporte en Excel",
+                        data=excel_data_rop,
+                        file_name=f"Reporte_ROP_{filtro_sem}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+
+            st.write("") # Espaciador sutil
+
             # 🎯 AJUSTE DE INTERFAZ: Añadidas las dos nuevas métricas analíticas al renderizado
             st.data_editor(
                 df_rop_render[[
                     "nombre_insumo", "clasificacion_ved", "stock_disponible", "cpd", 
-                    "lead_time_promedio", "lead_time_maximo", "rop", "semaforo"
+                    "lead_time_promedio", "rop", "semaforo"
                 ]],
                 use_container_width=True,
                 hide_index=True,
                 disabled=True, 
                 column_config={
                     "nombre_insumo": st.column_config.TextColumn("MEDICAMENTO / INSUMO"),
-                    "clasificacion_ved": st.column_config.TextColumn("CRITICIDAD VED"),
+                    "clasificacion_ved": st.column_config.TextColumn("VED"),
                     "stock_disponible": st.column_config.NumberColumn("STOCK REAL", format="%d unds."),
                     "cpd": st.column_config.NumberColumn("CONS. DIARIO (CPD)", format="%.2f unds./día"),
                     "lead_time_promedio": st.column_config.NumberColumn("ESPERA PROM.", format="%.1f días"),
-                    "lead_time_maximo": st.column_config.NumberColumn("ESPERA MÁX.", format="%d días"),
                     "rop": st.column_config.NumberColumn("PUNTO REORDEN (ROP)", format="%d unds."),
                     "semaforo": st.column_config.TextColumn("SEMÁFORO DE ALERTA")
                 }
@@ -129,14 +154,35 @@ def Vista_Dashboard_Logistico():
                 "el stock durará más días que el tiempo que le queda de vida física al lote."
             )
 
-            # Filtro rápido para aislar los lotes que requieren acción inmediata (Donar/Trasladar)
-            solo_riesgo = st.checkbox("Mostrar únicamente lotes con riesgo de vencimiento o merma")
+            # Estructura horizontal para el Checkbox y los botones de Reporte
+            col_chk_cad, _, col_btn_xls_cad = st.columns([2, 1, 1])
+
+            with col_chk_cad:
+                solo_riesgo = st.checkbox("Mostrar únicamente lotes con riesgo de vencimiento o merma")
             
             df_cad_render = df_caducidad.copy()
             if solo_riesgo:
                 df_cad_render = df_cad_render[
                     df_cad_render["alerta_vencimiento"].str.contains("ALERTA|CRÍTICO|VENCIDO")
                 ]
+
+            # Diccionario con metadatos del filtro actual
+            filtros_cad_aplicados = {"Solo Lotes Críticos / Riesgo": "SÍ" if solo_riesgo else "NO"}
+
+            if st.session_state.get("user_rol") == Rol.Administrador:
+                usuario_actual = st.session_state.get("user_nombre_completo", "OPERADOR SIAL-MED")
+                with col_btn_xls_cad:
+                    # Botón de Descargar Excel
+                    excel_data_cad = generar_reporte_caducidad_excel(df_cad_render, filtros_cad_aplicados, usuario_actual)
+                    st.download_button(
+                        label="📊 Generar Reporte en Excel",
+                        data=excel_data_cad,
+                        file_name="Reporte_Caducidad_Preventivo.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+
+            st.write("") # Espaciador sutil
 
             #  ESTILIZADO CONDICIONAL DE PANDAS PARA RESALTAR UNIDADES EN RIESGO
             def destacar_excedentes(val):
@@ -172,7 +218,6 @@ def Vista_Dashboard_Logistico():
             # ----------------------------------------------------------------------
             # GRÁFICO DE PLOTLY EXPRESS: Stock Disponible por Insumo
             # ----------------------------------------------------------------------
-            # Generamos una gráfica de barras interactiva en una sola línea de código
             fig_barras = px.bar(
                 df_rop,
                 x="nombre_insumo",

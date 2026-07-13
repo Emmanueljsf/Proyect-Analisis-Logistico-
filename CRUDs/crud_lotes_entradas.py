@@ -1,6 +1,6 @@
 from sqlmodel import Session, select, and_, or_, func  # Operaciones de consulta
 from models import Entradas, Lotes, Insumos, Usuarios, DetallesSalida, Estado, engine  # Modelos de datos del SIAL-MED
-from datetime import date, datetime  # Manejo de fechas para vencimientos
+from datetime import date, datetime, time  # Manejo de fechas para vencimientos
 from sqlalchemy.orm import joinedload, make_transient, selectinload
 from sqlalchemy.exc import IntegrityError  # 💡 Importación clave para detectar duplicados
 from typing import List  # Tipado de listas
@@ -129,9 +129,12 @@ def obtener_entradas_filtradas_paginadas(
                 except ValueError:
                     pass
 
-            # 🎛️ FILTRO 4: RANGO DE FECHAS USANDO 'fecha_recepcion'
+            # FILTRO 4: RANGO DE FECHAS USANDO 'fecha_recepcion'
             if rango_fechas and len(rango_fechas) == 2:
-                condiciones.append(and_(Entradas.fecha_recepcion >= rango_fechas[0], Entradas.fecha_recepcion <= rango_fechas[1]))
+                # Convertimos a datetime cubriendo el inicio y fin del día si es necesario
+                dt_inicio = datetime.combine(rango_fechas[0], time.min)
+                dt_fin = datetime.combine(rango_fechas[1], time.max)
+                condiciones.append(and_(Entradas.fecha_recepcion >= dt_inicio, Entradas.fecha_recepcion <= dt_fin))
 
             if condiciones:
                 statement = statement.where(*condiciones)
@@ -226,7 +229,7 @@ def actualizar_registros_entradas_masivo(cambios_dict: dict) -> bool:
                         entrada.cantidad= nueva_cantidad
                         if nueva_cantidad==cantidad_despachada: 
                             lote.activo=False
-                            lote.motivo_desactivacion='AGOTADO POR DESPACHO'
+                            lote.motivo_desactivacion='AGOTADO'
                             session.add(lote)
 
                     if "FECHA PEDIDO" in modificaciones:
@@ -311,13 +314,13 @@ def obtener_lotes_filtrados(
             statement = select(Lotes, Insumos).join(Insumos, Lotes.id_insumo == Insumos.id_insumo)
             condiciones = []
 
-            # 🎛️ FILTRO 1: ESTADO ADMINISTRATIVO DEL LOTE
+            # FILTRO 1: ESTADO DEL LOTE
             if opt_estado == "ACTIVOS":
                 condiciones.append(Lotes.activo == True)
             elif opt_estado == "INACTIVOS":
                 condiciones.append(Lotes.activo == False)
 
-            # 🎛️ FILTRO 2: BARRA UNIVERSAL (Insumo, VED, Código, Ubicación)
+            # FILTRO 2: BARRA UNIVERSAL (Insumo, VED, Código, Ubicación)
             if txt_universal:
                 busqueda = txt_universal.strip().upper()
                 # Traducimos VED por si busca la palabra completa
@@ -326,7 +329,8 @@ def obtener_lotes_filtrados(
                 bloque_or = [
                     Insumos.nombre.like(f"%{txt_universal}%"),
                     Lotes.codigo_lote.like(f"%{txt_universal}%"),
-                    Lotes.ubicacion_fisica.like(f"%{txt_universal}%")
+                    Lotes.ubicacion_fisica.like(f"%{txt_universal}%"),
+                    Lotes.motivo_desactivacion.like(f"%{txt_universal}%")
                 ]
                 if letra_ved:
                     bloque_or.append(Insumos.clasificacion_ved == letra_ved)
@@ -463,7 +467,7 @@ def actualizar_registros_lotes_masivo(cambios_dict: dict):
                 # REGLAS AUTOMÁTICAS DE INACTIVACIÓN DE SEGURIDAD MÉDICA
                 if lote.stock_disponible == 0:
                     lote.activo = False  
-                    lote.motivo_desactivacion = "AGOTADO POR DESPACHO"
+                    lote.motivo_desactivacion = "AGOTADO"
                 else:
                     if "ESTADO" in modificaciones:
                         estado_celda = modificaciones["ESTADO"].upper()

@@ -23,41 +23,34 @@ def modal_registro_salida_fefo():
     try:
         # Área aislada para el despliegue de excepciones de integridad UNIQUE de SQLite
         contenedor_errores = st.empty()
-        
-        # ---  MÓDULO 1: BUFFERING DE VARIABLES EN MEMORIA VOLÁTIL (RAM) ---
+
+        # 1. Asegurar el estado
         if "carrito_insumos" not in st.session_state:
-            st.session_state.carrito_insumos = []
-        if "hoja_ruta_despacho" not in st.session_state:
-            st.session_state.hoja_ruta_despacho = None
+            st.session_state["carrito_insumos"] = []
 
-        # ---  MÓDULO 2: INTERCEPTOR DE ÉXITO POST-TRANSACCIONAL (RESUMEN FINAL) ---
-        if st.session_state.hoja_ruta_despacho is not None:
-            st.success("🎉 ¡Movimiento de Inventario Consolidado Exitosamente en SQLite!")
-            st.markdown("### 📋 GUÍA DE RECOLECCIÓN EN ESTANTES PARA EL OPERARIO:")
-            
-            df_ruta = pd.DataFrame(st.session_state.hoja_ruta_despacho)
-            st.dataframe(df_ruta, use_container_width=True, hide_index=True)
-            
-            st.warning("⚠️ Registre estas ubicaciones físicas en el almacén antes de cerrar esta ventana.")
-            
-            # 🏁 Botón de cierre controlado
-            if st.button("🏁 FINALIZAR Y CERRAR VENTANA", use_container_width=True, type="primary"):
-                st.session_state.carrito_insumos = []
-                st.session_state.hoja_ruta_despacho = None
-                if "editor_carrito_salidas" in st.session_state:
-                    del st.session_state["editor_carrito_salidas"]
-                st.rerun()
-
-            return # Cortafuegos de UI absoluto
-
-        # --- ⚙️ MÓDULO 3: CLASIFICACIÓN DE CAMPOS MAESTROS (LAYOUT HORIZONTAL FILA 1) ---
+        # --- ⚙️ SECCION 1: CLASIFICACION DE CAMPOS MAESTROS (LAYOUT HORIZONTAL FILA 1) ---
         st.markdown("##### ⚙️ 1. Parámetros Generales de la Transacción")
         
         f1_c1, f1_c2, f1_c3 = st.columns([1.8, 1.6, 1.6])
         
+        # 🌟 CONTROL ESTRICTO EN RAM: Evaluamos si el carrito tiene elementos
+        carrito_tiene_items = len(st.session_state.carrito_insumos) > 0
+
+        # Si hay elementos en el carrito, congelamos el valor de la razón en el Session State
+        if carrito_tiene_items and "razon_fijada" in st.session_state:
+            st.session_state["sel_razon_salida"] = st.session_state["razon_fijada"]
+
         with f1_c1:
             opciones_razon = ["Consumo Clínico", "Traslado Preventivo", "Perdida por Caducidad", "Otro (especificar)"]
-            razon_seleccionada = st.selectbox("Razón de Salida: *", opciones_razon, key="sel_razon_salida")
+            razon_seleccionada = st.selectbox(
+                "Razón de Salida: *", 
+                opciones_razon, 
+                key="sel_razon_salida",
+                disabled=carrito_tiene_items  # Se bloquea visualmente si hay artículos
+            )
+            # Si el carrito está vacío, guardamos la última selección válida como la "fijada"
+            if not carrito_tiene_items:
+                st.session_state["razon_fijada"] = razon_seleccionada
         
         with f1_c2:
             txt_orden = st.text_input("Orden de salida / : *", placeholder="Ej: OFI-134-2026").strip()
@@ -67,10 +60,11 @@ def modal_registro_salida_fefo():
 
         # Entrada abierta condicional estandarizada en mayúsculas (.upper)
         txt_razon = razon_seleccionada
-        if razon_seleccionada == "OTRO (ESPECIFICAR)":
+        if razon_seleccionada == "Otro (especificar)":
             txt_razon = st.text_input("Especifique la Razón Extraordinaria: *", placeholder="Ej: REQUERIMIENTO ESPECIAL").strip()
 
         st.write("") # Espaciador simétrico
+
 
         # --- ➕ MÓDULO 4: PANEL COLECTOR DE RENGLONES (LAYOUT HORIZONTAL FILA 2) ---
         st.markdown("##### ➕ Agregar Medicamento a la Cola de Despacho")
@@ -158,47 +152,57 @@ def modal_registro_salida_fefo():
             max_unidades_permitidas = stock_total_disponible if (medicina_sel != "" and lotes_compatibles) else 99999
             cant_solicitada = st.number_input("Cantidad:", min_value=1, max_value=int(max_unidades_permitidas), value=1, step=1, key="num_cant_salida")
 
-        # --- BOTÓN INTERMEDIO DE ENTRADA AL BUFFER (ANEXAR) ---
-        if st.button("➕ Anexar Medicamento a la cola", use_container_width=True):
-            if medicina_sel == "" or not lotes_compatibles:
-                st.toast("⚠️ Verifique el insumo seleccionado y su disponibilidad real.")
-            elif cant_solicitada > stock_total_disponible:
-                st.error(f"🛑 Error de Stock: Intentó ingresar {cant_solicitada} u. pero el límite disponible es {stock_total_disponible} u.")
-            elif razon_seleccionada == "OTRO (ESPECIFICAR)" and not txt_razon.strip():
-                st.error("🛑 Operación rechazada: La descripción de la razón extraordinaria no puede estar vacía.")
-            else:
-                id_insumo_sel = dict_insumos[medicina_sel]
-                
-                # Algoritmo de acumulación continua para impedir la duplicación de filas idénticas
-                existe = False
-                for item in st.session_state.carrito_insumos:
-                    if item["id_insumo"] == id_insumo_sel and item["lote_especifico_id"] == lote_manual_id:
-                        if (item["cantidad"] + int(cant_solicitada)) <= stock_total_disponible:
-                            item["cantidad"] += int(cant_solicitada)
-                            st.toast("¡Cantidad actualizada en el renglón de forma conforme!")
-                        else:
-                            st.error("🛑 Error: La acumulación supera el stock físico de este lote.")
-                        existe = True
-                        break
-                
-                if not existe:
-                    st.session_state.carrito_insumos.append({
-                        "id_insumo": id_insumo_sel,
-                        "nombre_insumo": medicina_sel,
-                        "cantidad": int(cant_solicitada),
-                        "lote_especifico_id": lote_manual_id,
-                        "modo_extraccion": modo_extraccion
-                    })
-                    st.toast(f"Anexado: {medicina_sel}")
-                
-                # Refresco de estado controlado (Mantiene el diálogo abierto renderizando la grilla)
-                st.empty()
+
+        c_anexar, _, c_limpiar = st.columns([2, 0.6, 1.4])
+        with c_anexar:
+            # --- BOTÓN INTERMEDIO DE ENTRADA AL BUFFER (ANEXAR) ---
+            if st.button("➕ Anexar Medicamento a la cola", use_container_width=True):
+                if medicina_sel == "" or not lotes_compatibles:
+                    st.toast("⚠️ Verifique el insumo seleccionado y su disponibilidad real.")
+                elif cant_solicitada > stock_total_disponible:
+                    st.error(f"🛑 Error de Stock: Intentó ingresar {cant_solicitada} u. pero el límite disponible es {stock_total_disponible} u.")
+                elif razon_seleccionada == "OTRO (ESPECIFICAR)" and not txt_razon.strip():
+                    st.error("🛑 Operación rechazada: La descripción de la razón extraordinaria no puede estar vacía.")
+                else:
+                    id_insumo_sel = dict_insumos[medicina_sel]
+                    
+                    # Algoritmo de acumulación continua para impedir la duplicación de filas idénticas
+                    existe = False
+                    for item in st.session_state.carrito_insumos:
+                        if item["id_insumo"] == id_insumo_sel and item["lote_especifico_id"] == lote_manual_id:
+                            if (item["cantidad"] + int(cant_solicitada)) <= stock_total_disponible:
+                                item["cantidad"] += int(cant_solicitada)
+                                st.toast("¡Cantidad actualizada en el renglón de forma conforme!")
+                            else:
+                                st.error("🛑 Error: La acumulación supera el stock físico de este lote.")
+                            existe = True
+                            break
+                    
+                    if not existe:
+                        st.session_state.carrito_insumos.append({
+                            "id_insumo": id_insumo_sel,
+                            "nombre_insumo": medicina_sel,
+                            "cantidad": int(cant_solicitada),
+                            "lote_especifico_id": lote_manual_id,
+                            "modo_extraccion": modo_extraccion
+                        })
+                        st.toast(f"Anexado: {medicina_sel}")
+                    
+                    # Refresco de estado controlado (Mantiene el diálogo abierto renderizando la grilla)
+                    st.empty()
+
+        # BOTON DE LIMPIAR CARRITO
+        with c_limpiar:
+            if st.session_state.carrito_insumos:
+                if st.button("🗑️ Vaciar Lista de Insumos", type="secondary", use_container_width=True):
+                        st.session_state.carrito_insumos = []
+                        st.rerun()
+
 
         # --- MÓDULO 5: GRILLA INTERACTIVA DE EDICIÓN EN VIVO ---
         if st.session_state.carrito_insumos:
             st.write("")
             st.markdown("##### 🛒 Resumen de Insumos Cargados en la Tanda Actual")
-            st.caption("💡 Puede hacer doble clic sobre la celda de **CANTIDAD** para realizar correcciones numéricas rápidas.")
             
             df_carrito = pd.DataFrame(st.session_state.carrito_insumos)
             
@@ -223,9 +227,6 @@ def modal_registro_salida_fefo():
                     if "cantidad" in modificaciones:
                         st.session_state.carrito_insumos[indice]["cantidad"] = int(modificaciones["cantidad"])
 
-            if st.button("🗑️ Vaciar Lista de Insumos", type="secondary", use_container_width=True):
-                st.session_state.carrito_insumos = []
-                st.rerun()
 
         # --- MÓDULO 6: PROTOCOLO DE PERSISTENCIA FINAL TRASLADADO AL ENGINE ---
         st.divider()
@@ -278,4 +279,4 @@ def modal_registro_salida_fefo():
                 st.rerun()
 
     except Exception as e:
-            print(f"Error crítico en el formulario de registro de entradas: {e}")
+            print(f"Error crítico en el formulario de registro de salidas: {e}")

@@ -6,7 +6,7 @@ import numpy as np
 
 # EXTRACTOR Y PROCESADOR DE MÉTRICAS LOGÍSTICAS CON PANDAS 
 
-def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
+def calcular_metricas_analiticas_sialmed(dias_ventana: int= 120):
     """
     Función Maestra de Ingeniería Optimizada: Resuelve el estado del inventario, 
     patrones de consumo y mermas potenciales utilizando agregaciones nativas de SQL.
@@ -27,8 +27,9 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
         
         with Session(engine) as session:
             # ----------------------------------------------------------------------
-            # PASO 1: Consumo Directo Agrupado por Insumo en SQL
+            # OPTIMIZACIÓN DEL PASO 1: Consumo Directo Agrupado por Insumo en SQL
             # ----------------------------------------------------------------------
+            # Extraemos el consumo y la fecha de la primera salida en una sola operación vectorial
             stmt_salidas_sql = (
                 select(
                     Lotes.id_insumo,
@@ -38,50 +39,53 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
                 .join(DetallesSalida, Lotes.id_lote == DetallesSalida.id_lote)
                 .join(Salidas, DetallesSalida.id_salida == Salidas.id_salida)
                 .where(Salidas.estado == Estado.VALIDO)
-                .where(Salidas.razon_salida == "Consumo Clínico")
+                .where(Salidas.razon_salida == "CONSUMO CLÍNICO")
                 .where(Salidas.fecha >= fecha_limite_ventana)
                 .group_by(Lotes.id_insumo)
             )
             resultados_salidas = session.exec(stmt_salidas_sql).all()
             
+            # Mapeamos a DataFrame de consumo indexado por id_insumo
             if resultados_salidas:
                 df_salidas_raw = pd.DataFrame(resultados_salidas, columns=["id_insumo", "cantidad", "primera_salida"])
+                # Calculamos el divisor general basado en la primera salida global registrada en la ventana
+                primera_salida_sistema = pd.to_datetime(df_salidas_raw["primera_salida"]).min().date()
+                dias_operacion_real = (hoy - primera_salida_sistema).days
+                divisor_efectivo = max(1, min(dias_operacion_real, dias_ventana))
                 
-                # Conversión robusta a datetime
-                df_salidas_raw["primera_salida"] = pd.to_datetime(df_salidas_raw["primera_salida"], errors='coerce')
-                
-                # Ciclo operativo dinámico individual para evitar subestimar insumos nuevos
-                df_salidas_raw["dias_desde_primera_salida"] = (
-                    pd.to_datetime(hoy) - df_salidas_raw["primera_salida"]
-                ).dt.days
-                
-                df_salidas_raw["divisor_por_insumo"] = df_salidas_raw["dias_desde_primera_salida"].clip(lower=1, upper=dias_ventana)
-                df_salidas_raw["cpd"] = df_salidas_raw["cantidad"] / df_salidas_raw["divisor_por_insumo"]
-                
-                df_consumo_total = df_salidas_raw[["id_insumo", "cantidad", "cpd"]].copy()
+                df_consumo_total = df_salidas_raw[["id_insumo", "cantidad"]].copy()
+                df_consumo_total["cpd"] = df_consumo_total["cantidad"] / divisor_efectivo
             else:
                 df_consumo_total = pd.DataFrame(columns=["id_insumo", "cantidad", "cpd"])
 
             # ----------------------------------------------------------------------
-            # PASO 2: Cálculo Dinámico Matemático de Inventario por Lote
+            # ⚡ OPTIMIZACIÓN DEL PASO 2: Cálculo Dinámico Matemático de Inventario por Lote
             # ----------------------------------------------------------------------
+            # En lugar de usar la propiedad @property iterativa, sumamos entradas y restando salidas en SQL.
+            
+            # 1. Entradas totales agrupadas por Lote
             stmt_ent = select(Entradas.id_lote, func.sum(Entradas.cantidad).label("total_entrada")).where(Entradas.estado == Estado.VALIDO).group_by(Entradas.id_lote)
             df_ent = pd.DataFrame(session.exec(stmt_ent).all(), columns=["id_lote", "total_entrada"])
             
+            # 2. Salidas totales agrupadas por Lote
             stmt_sal = select(DetallesSalida.id_lote, func.sum(DetallesSalida.cantidad).label("total_salida")).join(Salidas).where(Salidas.estado == Estado.VALIDO).group_by(DetallesSalida.id_lote)
             df_sal = pd.DataFrame(session.exec(stmt_sal).all(), columns=["id_lote", "total_salida"])
             
+            # 3. Metadatos de lotes ACTIVOS
             stmt_lotes_activos = select(Lotes.id_lote, Lotes.codigo_lote, Lotes.id_insumo, Lotes.fecha_vencimiento).where(Lotes.activo == True)
             df_lotes_base = pd.DataFrame(session.exec(stmt_lotes_activos).all(), columns=["id_lote", "codigo_lote", "id_insumo", "fecha_vencimiento"])
             
             if df_lotes_base.empty:
                 return pd.DataFrame(), pd.DataFrame()
                 
+            # Cruzamos matrices en memoria a alta velocidad con Pandas
             df_lotes = pd.merge(df_lotes_base, df_ent, on="id_lote", how="left").fillna(0)
             df_lotes = pd.merge(df_lotes, df_sal, on="id_lote", how="left").fillna(0)
             
+            # stock_disponible matemático instantáneo por fila sin colapsar el ORM
             df_lotes["stock_disponible"] = (df_lotes["total_entrada"] - df_lotes["total_salida"]).clip(lower=0).astype(int)
             
+            # Traemos datos del insumo para completar los datos que requiere el df_lotes original
             stmt_insumos_lookup = select(Insumos.id_insumo, Insumos.nombre, Insumos.clasificacion_ved)
             df_insumos_lookup = pd.DataFrame(session.exec(stmt_insumos_lookup).all(), columns=["id_insumo", "nombre_insumo", "clasificacion_ved"])
             df_insumos_lookup["nombre_insumo"] = df_insumos_lookup["nombre_insumo"].str.upper()
@@ -90,11 +94,14 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
             df_lotes = pd.merge(df_lotes, df_insumos_lookup, on="id_insumo", how="left")
 
             # ----------------------------------------------------------------------
-            # PASO 3: Algoritmo ROP con Enfoque de Demanda Variable (Fórmula Recomendada)
+            # PASO 3: Algoritmo ROP (Punto de Reorden Dinámico por Insumo)
             # ----------------------------------------------------------------------
             df_stock_general = df_lotes.groupby("id_insumo")["stock_disponible"].sum().reset_index()
             
-            # --- 3.1. PROCESAMIENTO DEL LEAD TIME Y FILTRO IQR GRANULAR POR INSUMO ---
+            # ----------------------------------------------------------------------
+            # C. Lead Time Promedio y Máximo Real desde SQL (Corregido para @property)
+            # ----------------------------------------------------------------------
+            # AJUSTE: Traemos las fechas físicas en lugar de la propiedad calculada
             stmt_entradas_lt = (
                 select(Entradas.id_lote, Lotes.id_insumo, Entradas.fecha_pedido, Entradas.fecha_recepcion)
                 .join(Lotes, Entradas.id_lote == Lotes.id_lote)
@@ -103,88 +110,53 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
             resultados_entradas = session.exec(stmt_entradas_lt).all()
             
             if resultados_entradas:
+                # Reconstruimos el DataFrame con las fechas físicas
                 df_entradas = pd.DataFrame(
                     resultados_entradas, 
                     columns=["id_lote", "id_insumo", "fecha_pedido", "fecha_recepcion"]
                 )
-                df_entradas["fecha_pedido"] = pd.to_datetime(df_entradas["fecha_pedido"], errors='coerce')
-                df_entradas["fecha_recepcion"] = pd.to_datetime(df_entradas["fecha_recepcion"], errors='coerce')
+                
+                # Convertimos a tipo datetime de Pandas por seguridad
+                df_entradas["fecha_pedido"] = pd.to_datetime(df_entradas["fecha_pedido"])
+                df_entradas["fecha_recepcion"] = pd.to_datetime(df_entradas["fecha_recepcion"])
+                
+                # ⚡ CÁLCULO MATRICIAL EN PANDAS: Reemplaza al property de forma ultraveloz
                 df_entradas["lead_time"] = (df_entradas["fecha_recepcion"] - df_entradas["fecha_pedido"]).dt.days
                 
-                # Filtro IQR adaptativo por grupo de insumo
-                def filtrar_outliers_por_insumo(grupo, factor=1.5):
-                    if len(grupo) >= 4:
-                        q1 = grupo["lead_time"].quantile(0.25)
-                        q3 = grupo["lead_time"].quantile(0.75)
-                        iqr = q3 - q1
-                        return grupo[(grupo["lead_time"] >= (q1 - factor * iqr)) & (grupo["lead_time"] <= (q3 + factor * iqr))]
-                    return grupo
-
-                df_entradas = df_entradas.groupby("id_insumo", group_keys=False).apply(filtrar_outliers_por_insumo)
-                
+                # Agrupamos para obtener la media y el máximo histórico tal como lo pide tu ROP
                 df_lead_time_stats = df_entradas.groupby("id_insumo").agg(
-                    lead_time_promedio=('lead_time', 'mean')
+                    lead_time_promedio=('lead_time', 'mean'),
+                    lead_time_maximo=('lead_time', 'max')
                 ).reset_index()
             else:
-                df_lead_time_stats = pd.DataFrame(columns=["id_insumo", "lead_time_promedio"])
+                df_lead_time_stats = pd.DataFrame(columns=["id_insumo", "lead_time_promedio", "lead_time_maximo"])
 
-            # --- 3.2. VARIABILIDAD DE LA DEMANDA DIARIA REAL ---
-            stmt_consumo_diario = (
-                select(
-                    Lotes.id_insumo,
-                    Salidas.fecha,
-                    func.sum(DetallesSalida.cantidad).label("consumo_diario")
-                )
-                .join(DetallesSalida, Lotes.id_lote == DetallesSalida.id_lote)
-                .join(Salidas, DetallesSalida.id_salida == Salidas.id_salida)
-                .where(Salidas.estado == Estado.VALIDO)
-                .where(Salidas.razon_salida == "Consumo Clínico")
-                .where(Salidas.fecha >= fecha_limite_ventana)
-                .group_by(Lotes.id_insumo, Salidas.fecha)
-            )
-            resultados_diarios = session.exec(stmt_consumo_diario).all()
-            
-            if resultados_diarios:
-                df_diario_raw = pd.DataFrame(resultados_diarios, columns=["id_insumo", "fecha", "consumo_diario"])
-                df_desviacion_real = df_diario_raw.groupby("id_insumo")["consumo_diario"].std().reset_index()
-                df_desviacion_real = df_desviacion_real.rename(columns={"consumo_diario": "desviacion_demanda_real"})
-            else:
-                df_desviacion_real = pd.DataFrame(columns=["id_insumo", "desviacion_demanda_real"])
-
-            # --- 3.3. CONSOLIDACIÓN DEL MAESTRO ROP ---
+            # D. Catálogo Maestro Base (Mantenemos la solución que rescata el stock 0)
             df_insumos_meta = df_insumos_lookup.copy()
             
             df_rop_final = pd.merge(df_insumos_meta, df_stock_general, on="id_insumo", how="left")
             df_rop_final = pd.merge(df_rop_final, df_consumo_total[["id_insumo", "cpd"]], on="id_insumo", how="left")
             df_rop_final = pd.merge(df_rop_final, df_lead_time_stats, on="id_insumo", how="left")
-            df_rop_final = pd.merge(df_rop_final, df_desviacion_real, on="id_insumo", how="left")
             
             df_rop_final["stock_disponible"] = df_rop_final["stock_disponible"].fillna(0).astype(int)
             df_rop_final["cpd"] = df_rop_final["cpd"].fillna(0)
-            df_rop_final["lead_time_promedio"] = df_rop_final["lead_time_promedio"].fillna(5.0) 
+            df_rop_final["lead_time_promedio"] = df_rop_final["lead_time_promedio"].fillna(0) 
+            df_rop_final["lead_time_maximo"] = df_rop_final["lead_time_maximo"].fillna(0) 
             
-            # Respaldo teórico si el historial es muy corto para calcular desviaciones
-            df_rop_final["desviacion_demanda"] = df_rop_final["desviacion_demanda_real"].fillna(df_rop_final["cpd"] * 0.20)
-
-            # --- 3.4. CÁLCULO DEL SS MEDIANTE FÓRMULA SIMPLIFICADA PROTEGIDA ---
-            def asignar_factor_z(ved):
-                if "VITAL" in ved or ved == "V": return 3.09
-                if "ESENCIAL" in ved or ved == "E": return 1.96
-                return 1.28
-
-            df_rop_final["z"] = df_rop_final["clasificacion_ved"].apply(asignar_factor_z)
-            
-            # 🎯 Corrección Física Aplicada: SS = Z * σ_d * √LT_promedio
-            df_rop_final["ss"] = (
-                df_rop_final["z"] 
-                * df_rop_final["desviacion_demanda"] 
-                * np.sqrt(df_rop_final["lead_time_promedio"])
-            ).fillna(0).apply(np.ceil).astype(int)
-            
-            # Punto de Reorden Final
-            df_rop_final["rop"] = (
-                (df_rop_final["cpd"] * df_rop_final["lead_time_promedio"]) + df_rop_final["ss"]
-            ).apply(np.ceil).astype(int)
+            # Funciones vectorizadas o apply eficientes
+            def calcular_rop_fila(row):
+                cpd = row["cpd"]
+                ved = row["clasificacion_ved"]
+                lt_promedio = row["lead_time_promedio"]
+                lt_maximo = row["lead_time_maximo"]
+                
+                if "VITAL" in ved or ved == "V":
+                    rop_calculado = cpd * (lt_maximo + 3)
+                elif "ESENCIAL" in ved or ved == "E":
+                    rop_calculado = cpd * lt_maximo
+                else:
+                    rop_calculado = cpd * lt_promedio
+                return int(np.ceil(rop_calculado))
 
             def asignar_semaforo_abastecimiento(row):
                 stock = row["stock_disponible"]
@@ -195,6 +167,7 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
                     return "🌕 ADVERTENCIA (REORDEN)"
                 return "🟢 ÓPTIMO"
 
+            df_rop_final["rop"] = df_rop_final.apply(calcular_rop_fila, axis=1)
             df_rop_final["semaforo"] = df_rop_final.apply(asignar_semaforo_abastecimiento, axis=1)
 
             # ----------------------------------------------------------------------
@@ -203,15 +176,16 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
             df_caducidad = df_lotes[["id_lote", "codigo_lote", "id_insumo", "nombre_insumo", "clasificacion_ved", "stock_disponible", "fecha_vencimiento"]].copy()
             df_caducidad = pd.merge(df_caducidad, df_rop_final[["id_insumo", "cpd"]], on="id_insumo", how="left").fillna(0)
             
-            df_caducidad["fecha_vencimiento"] = pd.to_datetime(df_caducidad["fecha_vencimiento"]).dt.date
-            df_caducidad["dias_para_vencer"] = df_caducidad["fecha_vencimiento"].apply(lambda x: (x - hoy).days if pd.notnull(x) else 0)
+            df_caducidad["dias_para_vencer"] = df_caducidad["fecha_vencimiento"].apply(lambda x: (x - hoy).days)
             
+            # Optimización del cálculo de cobertura de stock
             df_caducidad["dias_duracion_stock"] = np.where(
                 df_caducidad["cpd"] == 0, 
                 9999, 
                 np.floor(df_caducidad["stock_disponible"] / df_caducidad["cpd"])
             ).astype(int)
             
+            # Semáforos de Vencimiento Analíticos
             def detectar_riesgo_vencimiento(row):
                 dias_vencer = row["dias_para_vencer"]
                 dias_stock = row["dias_duracion_stock"]
@@ -225,6 +199,7 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
                     
             df_caducidad["alerta_vencimiento"] = df_caducidad.apply(detectar_riesgo_vencimiento, axis=1)
 
+            # Cálculo de merma/excedentes en riesgo
             def calcular_cantidad_en_riesgo(row):
                 alerta = row["alerta_vencimiento"]
                 stock = row["stock_disponible"]
@@ -243,5 +218,4 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
             return df_rop_final, df_caducidad
     
     except Exception as e:
-        print(f"Error crítico en la función de analisis logistico: {e}")
-        return pd.DataFrame(), pd.DataFrame()
+            print(f"Error crítico en la función de analisis logistico: {e}")

@@ -6,6 +6,7 @@ from entradas import Vista_Entradas
 from salidas import Vista_Salidas, modal_registro_salida_fefo
 from usuarios import Vista_gestion_usuarios
 from analisis import Vista_Dashboard_Logistico
+import CRUDs.crud_usuarios as crud_u
 from login import Vista_Login
 import pandas as pd
 import re
@@ -18,6 +19,11 @@ import os # Para verificar si el archivo de sesión existe
 st.set_page_config(page_title="SIAL-MED | Gestión de Insumos", layout="wide")
 create_db_and_tables()
 
+# Inicialización del Sistema si está vacío
+credenciales_iniciales = crud_u.verificar_y_crear_primer_admin()
+
+
+# CARGA DE CSS
 def cargar_css(archivo_css):
     try:
         with open(archivo_css, "r", encoding="utf-8") as f:
@@ -69,24 +75,25 @@ else:
     # Si el usuario ya está autenticado y navegando de forma activa por la interfaz
     guardar_sesion_local() # Reescribe el JSON en cada clic para asegurar que mantenga el estado más reciente
 
+
 # ==============================================================================
 # 3. ENRUTADOR DE CONTROL DE ACCESO
 # ==============================================================================
 if not st.session_state["usuario_autenticado"]:
-    Vista_Login()
+    Vista_Login(credenciales_iniciales)
     
     # Si el login fue exitoso en este ciclo, guardamos en el JSON inmediatamente
     if st.session_state["usuario_autenticado"]:
         guardar_sesion_local()
 
 else:
-    # 🔓 INTERFAZ DESBLOQUEADA (SIAL-MED)
+    # INTERFAZ DESBLOQUEADA (SIAL-MED)
     
     # ==========================================
     # 4. BARRA LATERAL (SIDEBAR DE NAVEGACIÓN)
     # ==========================================
     with st.sidebar:
-        # 📌 LOGO EN MENÚ LATERAL: Muestra el escudo arriba del nombre del sistema
+        # LOGO EN MENÚ LATERAL: Muestra el escudo arriba del nombre del sistema
         c_logo, _ = st.columns([1, 2])
         with c_logo:
             st.image("media/emblema proyecto.jpg", use_container_width=True)
@@ -99,13 +106,13 @@ else:
         st.caption(f"Privilegio: {st.session_state['user_rol']}") 
         st.divider()
         
-        # 📌 MODIFICACIÓN: Separamos los módulos "Catálogo", "Lotes" y "Entradas"
+        # Separamos los módulos "Catálogo", "Lotes", "Entradas", Salidas y Analisis logistico
         opciones_menu = [
             "📦 Catálogo Insumos", 
             "🔢 Lotes en Existencia", # Módulo enfocado en ver el stock y vencimientos
             "📥 Registrar Entradas" ,   # Módulo enfocado en los formularios de recepción
-            'Salidas',
-            'Análisis Logistico'
+            '📤 Salidas',
+            '📊 Análisis Logistico'
         ]
         
         if str(st.session_state["user_rol"]).startswith("Admin"):
@@ -155,12 +162,14 @@ else:
     elif menu == "📥 Registrar Entradas":
         Vista_Entradas()
     
-    elif menu=='Salidas':
+    elif menu=='📤 Salidas':
         Vista_Salidas()
+
+    elif menu == '📊 Análisis Logistico':
+        Vista_Dashboard_Logistico()
         
     elif menu == "👥 Gestión de Personal":
         Vista_gestion_usuarios()
 
-    elif menu == 'Análisis Logistico':
-        Vista_Dashboard_Logistico()
+    
         

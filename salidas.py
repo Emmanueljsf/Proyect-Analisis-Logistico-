@@ -2,8 +2,10 @@ import streamlit as st
 import pandas as pd
 import CRUDs.crud_salidas as crud_salidas
 from registro_salidas import modal_registro_salida_fefo
+from reportes_salidas import generar_reporte_salidas_excel, generar_reporte_salidas_pdf
+from models import Rol
 from insumos1 import usuario_tiene_permiso_escritura
-from datetime import date
+from datetime import date, timedelta
 import time
 import math
 
@@ -49,15 +51,15 @@ def Vista_Salidas():
                 
             with f_col2:
                 rango_fechas = st.date_input(
-                    "Fecha de Despacho:", 
-                    value=[date(2024, 1, 1), date(2030, 12, 31)], 
+                    "Fecha de Salida:", 
+                    value=[date.today()-timedelta(days=30), date.today()], 
                     format="DD/MM/YYYY", 
                     key="fs_fecha"
                 )
                 
             with f_col3:
                 opt_estado = st.selectbox(
-                    "Estado Acta:", 
+                    "Estado salida:", 
                     ["VALIDO", "ANULADO", "TODOS"], 
                     index=0, 
                     key="fs_estado"
@@ -67,9 +69,9 @@ def Vista_Salidas():
         # ==============================================================================
         # CONSULTA MAESTRA AL BACKEND PAGINADA
         # ==============================================================================
-        REGISTROS_POR_PAGINA = 50
+        REGISTROS_POR_PAGINA = 100
         
-        lista_actas_bd, total_registros_bd = crud_salidas.obtener_salidas_filtradas_paginadas(
+        lista_salidas, total_registros = crud_salidas.obtener_salidas_filtradas_paginadas(
             txt_universal=txt_universal,
             rango_fechas=rango_fechas,
             opt_estado=opt_estado,
@@ -78,34 +80,78 @@ def Vista_Salidas():
         )
 
         filas_maestro = []
-        for acta in lista_actas_bd:
-            responsable = acta.usuario.username if acta.usuario else "Sistema"
+        for salida in lista_salidas:
+            nombre_completo = f"{salida.usuario.nombres.split()[0]} {salida.usuario.apellidos.split()[0]}"
             
             filas_maestro.append({
                 "VER": False,  # Tu columna exacta de la captura de pantalla
-                "ID": acta.id_salida,
-                "ORDEN DE SALIDA": acta.orden_salida,
-                "FECHA": acta.fecha,
-                "DESTINO / PACIENTE": acta.paciente_destino,
-                "RAZÓN LOGÍSTICA": acta.razon_salida,
-                "RESPONSABLE": responsable,
-                "ESTADO": acta.estado.value if hasattr(acta.estado, "value") else acta.estado
+                "ID": salida.id_salida,
+                "ORDEN DE SALIDA": salida.orden_salida,
+                "RAZÓN DE SALIDA": salida.razon_salida,
+                "FECHA": salida.fecha,
+                "DESTINO / PACIENTE": salida.paciente_destino,
+                "RESPONSABLE": nombre_completo,
+                "ESTADO": salida.estado.value if hasattr(salida.estado, "value") else salida.estado
             })
 
         if filas_maestro:
             df_maestro_final = pd.DataFrame(filas_maestro)
         else:
-            df_maestro_final = pd.DataFrame(columns=["VER", "ID", "ORDEN DE SALIDA", "FECHA", "DESTINO / PACIENTE", "RAZÓN LOGÍSTICA", "RESPONSABLE", "ESTADO"])
+            df_maestro_final = pd.DataFrame(columns=["VER", "ID", "ORDEN DE SALIDA", "FECHA", "DESTINO / PACIENTE", "RAZÓN DE SALIDA", "RESPONSABLE", "ESTADO"])
 
         contenedor_titulo.markdown(
-            f"<h2 style='margin-bottom: 0;'>📦 Control de Órdenes y Salidas ({total_registros_bd} registros históricos)</h2>", 
+            f"<h2 style='margin-bottom: 0;'>📦 Control de Órdenes y Salidas ({total_registros} registros filtrados)</h2>", 
             unsafe_allow_html=True
         )
 
-        _, col_btn = st.columns([4, 1.2])
-        with col_btn:
-            if puede_editar and st.button("📦 NUEVO DESPACHO (FEFO)", use_container_width=True, type="primary"):
-                modal_registro_salida_fefo()
+        col_rep1, col_rep2, _, f_col_btn = st.columns([2, 2, 1, 2])
+
+        with f_col_btn:
+                if puede_editar and st.button("📤 NUEVA SALIDA (FEFO)", use_container_width=True, type="primary"):
+                    modal_registro_salida_fefo()
+
+        if st.session_state.get("user_rol") == Rol.Administrador:
+            
+            usuario_actual = st.session_state.get("user_nombre_completo", "OPERADOR SIAL-MED")
+            with col_rep1:
+                if st.button("📊 Generar Reporte en Excel (.xlsx)", use_container_width=True):
+                    with st.spinner("Procesando Excel..."):
+                        # La consulta a la BD SOLO ocurre AQUÍ, tras hacer clic
+                        data_xlsx = generar_reporte_salidas_excel(
+                            txt_universal, rango_fechas, opt_estado, 
+                            usuario_actual
+                        )
+                        
+                        if data_xlsx:
+                            st.download_button(
+                                label="⬇️ Descargar Archivo Excel",
+                                data=data_xlsx,
+                                file_name=f"salidas_estructuradas_{date.today()}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True
+                            )
+                        else:
+                            st.warning("No hay datos para el filtro seleccionado.")
+
+            with col_rep2:
+                if st.button("📄 Generar Reporte en PDF", use_container_width=True):
+                    with st.spinner("Procesando PDF..."):
+                        # La consulta a la BD SOLO ocurre AQUÍ, tras hacer clic
+                        data_pdf = generar_reporte_salidas_pdf(
+                            txt_universal, rango_fechas, opt_estado, 
+                            usuario_actual
+                        )
+                        
+                        if data_pdf:
+                            st.download_button(
+                                label="⬇️ Descargar Archivo PDF",
+                                data=data_pdf,
+                                file_name=f"auditoria_salidas_{date.today()}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
+                        else:
+                            st.warning("No hay datos para el filtro seleccionado.")
 
         st.write("")
         contenedor_guardar_modificacion = st.empty()
@@ -113,7 +159,7 @@ def Vista_Salidas():
         # ==============================================================================
         # 📝 TABLA MAESTRA CON LA COLUMNA 'VER' 
         # ==============================================================================
-        st.markdown("##### 🧾 Actas de Despacho Registradas (Marque la casilla 'VER' para inspeccionar medicamentos)")
+        st.markdown("##### 🧾 Actas de Salidas Registradas (Marque la casilla 'VER' para inspeccionar medicamentos)")
         
         # 1. Recuperamos el ID que está activo actualmente en el sistema
         if "id_salida_activa" not in st.session_state:
@@ -127,17 +173,17 @@ def Vista_Salidas():
             df_maestro_final,
             use_container_width=True,
             hide_index=True,
-            height=220,
+            height=370,
             key="editor_maestro_salidas",
-            disabled=["ID", "FECHA", "RESPONSABLE"] if puede_editar else df_maestro_final.columns.tolist(),
+            disabled=["ID", "FECHA", "RAZÓN DE SALIDA", "RESPONSABLE"] if puede_editar else df_maestro_final.columns.tolist(),
             column_config={
                 "VER": st.column_config.CheckboxColumn(width="small", help="Marque para cargar medicamentos"),
                 "ID": st.column_config.NumberColumn(label='ID', format="%d", width="small"),
                 "FECHA": st.column_config.DatetimeColumn(format="DD/MM/YYYY HH:mm", width="medium"),
                 "ORDEN DE SALIDA": st.column_config.TextColumn(width="medium", required=True),
                 "DESTINO / PACIENTE": st.column_config.TextColumn(width="medium", required=True),
-                "RAZÓN LOGÍSTICA": st.column_config.SelectboxColumn(options=["CONSUMO CLÍNICO", "TRASLADO PREVENTIVO", "PERDIDA POR CADUCIDAD"], width="medium", required=True),
-                "RESPONSABLE": st.column_config.TextColumn(width="small"),
+                "RAZÓN DE SALIDA": st.column_config.TextColumn(width="medium", required=True),
+                "RESPONSABLE": st.column_config.TextColumn(width="medium"),
                 "ESTADO": st.column_config.SelectboxColumn(options=["VALIDO", "ANULADO"], width="small", required=True)
             }
         )
@@ -170,7 +216,7 @@ def Vista_Salidas():
         id_salida_target = st.session_state["id_salida_activa"]
 
         # Paginación
-        total_paginas = math.ceil(total_registros_bd / REGISTROS_POR_PAGINA) if total_registros_bd > 0 else 1
+        total_paginas = math.ceil(total_registros / REGISTROS_POR_PAGINA) if total_registros > 0 else 1
         c_pag1, c_pag2, c_pag3 = st.columns([1.5, 2, 1.5])
         with c_pag2:
             st.markdown(f"<p style='text-align:center; color:gray; font-size:12px;'>Pág <b>{st.session_state['pagina_salidas']}</b> de {total_paginas}</p>", unsafe_allow_html=True)
@@ -190,7 +236,7 @@ def Vista_Salidas():
         df_para_editar = pd.DataFrame() 
         
         if id_salida_target is not None:
-            st.markdown(f"##### 💊 Insumos Médicos Despachados en el Acta seleccionada: `#{id_salida_target}`")
+            st.markdown(f"##### 💊 Insumos Médicos Despachados en la Aalida seleccionada: `#{id_salida_target}`")
             print(id_salida_target)
             
             # Invocamos la función de tu backend

@@ -158,7 +158,7 @@ def autenticar_usuario(username_ingresado: str, password_ingresada: str, session
         if not usuario:
             return "Usuario no encontrado"
             
-        # 2. 📌 NUEVO: Convertir la contraseña del formulario en Hash SHA-256
+        # 2. Convertir la contraseña del formulario en Hash SHA-256
         # .encode() pasa el texto a bytes, y .hexdigest() lo vuelve a convertir en texto legible para SQL
         hash_ingresado = hashlib.sha256(password_ingresada.strip().encode()).hexdigest()
         
@@ -173,3 +173,48 @@ def autenticar_usuario(username_ingresado: str, password_ingresada: str, session
         # Solo cerramos si es una sesión local de producción
         if session_externa is None:
             session.close()
+
+
+# ==============================================================================
+# SECCIÓN 4: AUTO-SEEDING Y PERSISTENCIA DE CONTINGENCIA
+# ==============================================================================
+
+def verificar_y_crear_primer_admin() -> Optional[dict]:
+    """
+    Inspecciona si el sistema carece de cuentas registradas en la base de datos.
+    Si la tabla está vacía, registra un Administrador genérico de contingencia 
+    invocando la lógica estándar del CRUD para asegurar el cifrado de la clave.
+
+    Retorna:
+    - dict: Un diccionario con las llaves 'username' y 'password' en texto plano
+            si el usuario fue creado exitosamente.
+    - None: Si la base de datos ya contiene al menos un usuario registrado.
+    """
+    with Session(engine) as session:
+        # Evaluamos si la tabla Usuarios está completamente vacía
+        total_usuarios = session.exec(select(Usuarios)).all()
+        
+        if len(total_usuarios) == 0:
+            # Instanciamos el modelo con los datos iniciales de rescate
+            admin_inicial = Usuarios(
+                nombres="Administrador",
+                apellidos="De Control",
+                username="admin",
+                password="admin123", # 'crear_usuario' se encargará de encriptarla en SHA-256[cite: 10]
+                rol=Rol.Administrador,
+                activo=True
+            )
+            # Reutilizamos tu función del CRUD con sus respectivas validaciones[cite: 10]
+            if crear_usuario(admin_inicial):
+                return {"username": "admin", "password": "admin123"}
+        
+        with Session(engine) as session:
+            # Consultamos todos los usuarios actuales
+            usuarios = session.exec(select(Usuarios)).all()
+            
+            # Si hay exactamente un usuario y su username es 'admin', el peligro persiste
+            if len(usuarios) == 1 and usuarios[0].username == "admin":
+                return {"username": usuarios[0].username, "password": 'admin123'}
+                
+    return None
+

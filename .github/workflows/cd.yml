@@ -1,0 +1,19 @@
+name: SIAL-MED Continuous Deployment (CD)
+
+on:
+  push:
+    branches:
+      - main  # Se ejecuta automáticamente al impactar la rama principal
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Clonar Código Fuente
+        uses: actions/checkout@v3
+
+      - name: 🚀 Notificar a Render para Actualización Desatendida
+        run: |
+          echo "Disparando actualización automática de SIAL-MED..."
+          curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
+          echo "Pipeline completado con éxito."

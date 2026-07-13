@@ -1,21 +1,24 @@
 import streamlit as st
 import pandas as pd  # Manejo matricial a alta velocidad
 import CRUDs.crud_insumos as crud_insumos  # Controlador backend SQL
+from models import Rol
 import time  # Control de pausas para confirmaciones visuales
 import math
+from datetime import datetime
+import io
+from reportes import generar_reporte_insumos_excel, generar_reporte_insumos_pdf
 
 # Roles autorizados para alterar datos del catálogo médico
-ROLES_AUTORIZADOS = ["Administrador", "Encargado del area"]
+ROLES_AUTORIZADOS = [Rol.Administrador, Rol.Encargado]
 
 def usuario_tiene_permiso_escritura() -> bool:
-    """Evalúa los rangos en sesión para habilitar o bloquear la edición en caliente."""
+    """Evalúa los rangos en sesión para habilitar o bloquear la edición."""
     es_autenticado = st.session_state.get("usuario_autenticado", False)  # Revisa login
     rol_usuario = st.session_state.get("user_rol", None)  # Captura rol del usuario
     return es_autenticado and (rol_usuario in ROLES_AUTORIZADOS)  # Retorna permiso booleano
 
-tiene_permisos = usuario_tiene_permiso_escritura()  # Valida privilegios de rol
 
-# FUNCIÓN COMPATIBLE CON PANDAS 1.X / PYTHON 3.8 PARA PINTAR EL FONDO DE LA PALABRA
+# FUNCIÓN PARA PINTAR EL FONDO DE LA PALABRA
 def colorear_celda_ved(valor):
     """Pinta el fondo de la celda según la clasificación VED (Estilo Etiqueta)."""
     if valor == "V":
@@ -55,6 +58,8 @@ def modal_registro_insumo():
 
 def Insumos():
     try:
+        tiene_permisos = usuario_tiene_permiso_escritura()  # Valida privilegios de rol
+        
         """Componente maestro del catálogo estructurado en un dataframe con control de cambios masivos."""
         contenedor_titulo = st.empty()
         st.caption("Gestión integral con filtro de stock por rango de texto único, colores de fondo VED y edición masiva.")
@@ -64,11 +69,11 @@ def Insumos():
             st.session_state["pagina_insumos"] = 1
 
     # ==============================================================================
-        # 🎛️ PANEL DE FILTROS UNIVERSALES ULTRA COMPACTOS
+        # PANEL DE FILTROS UNIVERSALES 
         # ==============================================================================
         with st.expander("🔍 Buscador Universal de Catálogo", expanded=True):
             # Reducimos a 4 columnas unificando la barra de Nombre y VED
-            f_col_buscar, f_col_stock, f_col_estado, f_col_btn = st.columns([2.2, 1.4, 1.2, 1.2])
+            f_col_buscar, f_col_stock, f_col_estado = st.columns([2.2, 1.4, 1.2])
             
             with f_col_buscar:
                 # Una sola barra para Nombre o palabras clave: "Vital", "Esencial", "Deseable"
@@ -77,9 +82,59 @@ def Insumos():
                 txt_rango_stock = st.text_input("Rango de Stock (Min-Max):", placeholder="Ej: 30-50 o 50", key="f_txt_stock").strip()
             with f_col_estado:
                 opt_estado = st.selectbox("Estado:", ["ACTIVOS", "INACTIVOS", "TODOS"], index=0, key="f_opt_estado")
-            with f_col_btn:
+            
+
+        # Creamos dos columnas visuales elegantes
+        col_excel, col_pdf, _, f_col_btn = st.columns([2,2,1,1])
+
+        # BOTON DE REGISTRO
+        with f_col_btn:
                 if tiene_permisos and st.button("➕ NUEVO INSUMO", use_container_width=True, type="primary"):
                     modal_registro_insumo()
+
+        if st.session_state.get("user_rol") == Rol.Administrador:
+            usuario_actual = st.session_state.get("user_nombre_completo", "OPERADOR SIAL-MED")
+            
+            # SECCIÓN: REPORTE EN EXCEL
+            with col_excel:
+                # 1. Creamos el botón disparador para evitar consultas automáticas
+                if st.button("📊 Generar Reporte en Excel (.xlsx)", use_container_width=True, key="btn_trigger_excel"):
+                    with st.spinner("Procesando Excel..."):
+                        
+                        # 2. La consulta a la BD SOLO ocurre AQUÍ tras hacer clic
+                        datos_excel = generar_reporte_insumos_excel(txt_buscar, opt_estado, usuario_actual)
+                        
+                        if datos_excel:
+                            # 3. Si hay datos, habilitamos el botón nativo de descarga
+                            st.download_button(
+                                label="⬇️ Descargar Archivo Excel",
+                                data=datos_excel,
+                                file_name=f"SIALMED_Reporte_Insumos_{opt_estado}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True
+                            )
+                        else:
+                            st.warning("No hay datos para el filtro seleccionado.")
+
+            # SECCIÓN: REPORTE EN PDF
+            with col_pdf:
+                # 1. Creamos el botón disparador para evitar consultas automáticas
+                if st.button("📄 Generar Reporte en PDF", use_container_width=True, key="btn_trigger_pdf"):
+                    with st.spinner("Procesando PDF..."):
+                        
+                        # 2. La consulta a la BD SOLO ocurre AQUÍ tras hacer clic
+                        datos_pdf = generar_reporte_insumos_pdf(txt_buscar, opt_estado, usuario_actual)   
+                        if datos_pdf:
+                            # 3. Si hay datos, habilitamos el botón nativo de descarga      
+                            st.download_button(
+                                label="⬇️ Descargar Archivo PDF",
+                                data=datos_pdf,
+                                file_name=f"SIALMED_Reporte_Insumos_{opt_estado}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
+                        else:
+                            st.warning("No hay datos para el filtro seleccionado.")
 
         # ==============================================================================
         # EJECUCIÓN DEL BACKEND (Trae todo de un solo viaje)
@@ -110,7 +165,7 @@ def Insumos():
         # Renderizado dinámico de títulos informativos basados en la respuesta del backend
         total_filtrados = len(df_filtrado)
         contenedor_titulo.markdown(
-            f"<h2 style='margin-bottom: 0;'>📦 Catálogo Maestro de Insumos Médicos ({total_filtrados} en pantalla)</h2>", 
+            f"<h2 style='margin-bottom: 0;'>📦 Catálogo Maestro de Insumos Médicos ({total_filtrados} registros filtrados)</h2>", 
             unsafe_allow_html=True
         )
 
@@ -157,7 +212,6 @@ def Insumos():
         # ==============================================================================
         # 4. RENDERIZADO DEL DATAFRAME EDITABLE / SOLO LECTURA
         # ==============================================================================
-        print(tiene_permisos)
         if tiene_permisos:
             st.data_editor(
                 df_estilizado,  
@@ -234,5 +288,8 @@ def Insumos():
                 st.session_state["pagina_insumos"] += 1
                 st.rerun()
 
+        
+        
+
     except Exception as e:
-            print(f"🛑 Error crítico en la vista de insumos: {e}")
+            print(f"Error crítico en la vista de insumos: {e}")

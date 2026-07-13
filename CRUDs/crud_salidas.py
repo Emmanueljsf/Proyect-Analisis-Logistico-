@@ -1,6 +1,6 @@
 from sqlmodel import Session, select, and_, or_, func
 from models import Salidas, DetallesSalida, Lotes, Insumos, Estado, engine
-from datetime import datetime, date
+from datetime import datetime, date, time
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload, joinedload
 from typing import Optional, List
@@ -221,27 +221,28 @@ def obtener_salidas_filtradas_paginadas(
             statement = select(Salidas)
             condiciones = []
 
-            # 🎛️ FILTRO 1: ESTADO DEL ACTA (Usa el Enum o String)
+            # FILTRO 1: ESTADO DEL ACTA (Usa el Enum o String)
             if opt_estado != "TODOS":
                 # Convertimos a string o dejamos el valor si se pasa directo
                 condiciones.append(Salidas.estado == opt_estado)
 
-            # 🎛️ FILTRO 2: BUSCADOR UNIVERSAL (Paciente/Destino u Orden de Salida)
+            # FILTRO 2: BUSCADOR UNIVERSAL (Paciente/Destino u Orden de Salida)
             if txt_universal:
-                txt_universal = txt_universal.strip().upper()
+                txt_universal = txt_universal.strip()
                 condiciones.append(
                     or_(
                         Salidas.paciente_destino.like(f"%{txt_universal}%"),
-                        Salidas.orden_salida.like(f"%{txt_universal}%")
+                        Salidas.orden_salida.like(f"%{txt_universal}%"),
+                        Salidas.razon_salida.like(f"%{txt_universal}%"),
                     )
                 )
 
-            # 🎛️ FILTRO 3: RANGO DE FECHAS (Usa 'fecha')
+            # FILTRO 3: RANGO DE FECHAS (Usa 'fecha')
             if rango_fechas and len(rango_fechas) == 2:
                 # Convertimos a datetime cubriendo el inicio y fin del día si es necesario
-                from datetime import datetime, time as dt_time
-                dt_inicio = datetime.combine(rango_fechas[0], dt_time.min)
-                dt_fin = datetime.combine(rango_fechas[1], dt_time.max)
+                
+                dt_inicio = datetime.combine(rango_fechas[0], time.min)
+                dt_fin = datetime.combine(rango_fechas[1], time.max)
                 condiciones.append(and_(Salidas.fecha >= dt_inicio, Salidas.fecha <= dt_fin))
 
             if condiciones:
@@ -348,7 +349,7 @@ def actualizar_registros_salidas_masivo(cambios_cabecera: dict, cambios_detalle:
                             lote = session.get(Lotes, detalle.id_lote)
                             if lote:
                                 lote.activo = True
-                                if lote.motivo_desactivacion == 'AGOTAMIENTO':
+                                if lote.motivo_desactivacion == 'AGOTADO':
                                     lote.motivo_desactivacion = None
                                 session.add(lote)
                         
@@ -370,7 +371,7 @@ def actualizar_registros_salidas_masivo(cambios_cabecera: dict, cambios_detalle:
                                 session.flush()
                                 if lote.stock_disponible - detalle.cantidad == 0:
                                     lote.activo = False
-                                    lote.motivo_desactivacion = 'AGOTAMIENTO'
+                                    lote.motivo_desactivacion = 'AGOTADO'
                                     session.add(lote)
                         
                         salida_maestra.estado = Estado.VALIDO

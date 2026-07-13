@@ -3,6 +3,8 @@ import pandas as pd
 import CRUDs.crud_lotes_entradas as crud_le  
 import CRUDs.crud_insumos as crud_i  # 💡 Importamos para alimentar las opciones de insumos en la celda
 from insumos1 import usuario_tiene_permiso_escritura
+from models import Rol
+from reportes import generar_reporte_entradas_excel, generar_reporte_entradas_pdf
 from datetime import date, timedelta
 import time
 import math
@@ -81,7 +83,7 @@ def Vista_Entradas():
         contenedor_titulo = st.empty()
 
         # ==============================================================================
-        # 🎛️ LAS 4 BARRAS DE BÚSQUEDA CORREGIDAS
+        # LAS 4 BARRAS DE BÚSQUEDA CORREGIDAS
         # ==============================================================================
         with st.expander("🔍 Historial y Auditoría de Entradas (Filtros en Backend)", expanded=True):
             f_col1, f_col2, f_col3, f_col4 = st.columns([2.5, 1.2, 1.8, 1.2])
@@ -104,7 +106,7 @@ def Vista_Entradas():
                 # Filtrado basado en la propiedad fecha_recepcion
                 rango_fechas = st.date_input(
                     "Fecha de Recepción:", 
-                    value=[date(2024, 1, 1), date(2030, 12, 31)], 
+                    value=[date.today()-timedelta(days=121), date.today()],
                     format="DD/MM/YYYY", 
                     key="fe_fecha"
                 )
@@ -119,7 +121,7 @@ def Vista_Entradas():
                 )
 
         # ==============================================================================
-        # 🚀 CONSULTA AL BACKEND CON VARIABLES REALES
+        # CONSULTA AL BACKEND 
         # ==============================================================================
         REGISTROS_POR_PAGINA = 100
         
@@ -145,7 +147,9 @@ def Vista_Entradas():
                     "CÓDIGO LOTE": lote_obj.codigo_lote,
                     "CLASIFICACIÓN VED": ved_txt,
                     "CANTIDAD": entrada_obj.cantidad,
-                    "FECHA RECEPCIÓN": entrada_obj.fecha_recepcion,  # Cambio de variable aquí
+                    "FECHA PEDIDO": entrada_obj.fecha_pedido,
+                    "FECHA RECEPCIÓN": entrada_obj.fecha_recepcion,
+                    'TIEMPO ENTREGA': entrada_obj.tiempo_entrega_dias, 
                     "RESPONSABLE": nombre_completo,
                     "ESTADO": entrada_obj.estado
                 })
@@ -158,29 +162,81 @@ def Vista_Entradas():
 
         # Renderizado del título informando el universo total histórico coincidente
         contenedor_titulo.markdown(
-            f"<h2 style='margin-bottom: 0;'>📥 Control de Entradas de Inventario ({total_registros_bd} actas registradas)</h2>", 
+            f"<h2 style='margin-bottom: 0;'>📥 Control de Entradas de Inventario ({total_registros_bd} registros filtrados)</h2>", 
             unsafe_allow_html=True
         )
 
-        _, col_btn = st.columns([4, 1.2])
+    # BOTONES DE REPORTE Y FORMULARIO DE REGISTRO
+        col_excel, col_pdf, _, col_btn = st.columns([2, 2, 1, 2])
         with col_btn:
             if puede_editar and st.button("📥 NUEVA ENTRADA", use_container_width=True, type="primary"):
-                from entradas import modal_registro_entrada
                 modal_registro_entrada()
 
+        if st.session_state.get("user_rol") == Rol.Administrador:
+            usuario_actual = st.session_state.get("user_nombre_completo", "ADMINISTRADOR SIAL-MED")
+            
+            f_cantidad = txt_rango_cantidad if 'txt_rango_cantidad' in locals() else ""
+            f_fechas = rango_fechas if 'rango_fechas' in locals() else None
+            f_estado = opt_estado if 'opt_estado' in locals() else "VALIDO"
+                        
+            # SECCIÓN: REPORTE EN EXCEL
+            with col_excel:
+                # 1. Creamos el botón disparador para evitar consultas automáticas
+                if st.button("📊 Generar Reporte en Excel (.xlsx)", use_container_width=True, key="btn_trigger_excel"):
+                    with st.spinner("Procesando Excel..."):
+                        
+                        # 2. La consulta a la BD SOLO ocurre AQUÍ tras hacer clic
+                        datos_l_excel = generar_reporte_entradas_excel(txt_universal, f_cantidad, f_fechas, f_estado, usuario_actual)
+                        
+                        if datos_l_excel:
+                            # 3. Si hay datos, habilitamos el botón nativo de descarga
+                            st.download_button(
+                                label="⬇️ Descargar Archivo Excel",
+                                data=datos_l_excel,
+                                file_name=f"SIALMED_Inventario_Entradas_{f_estado}_{date.today()}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True,
+                                key="btn_download_entradas_excel"
+                            )
+                        else:
+                            st.warning("No hay datos para el filtro seleccionado.")
+
+            # SECCIÓN: REPORTE EN PDF
+            with col_pdf:
+                # 1. Creamos el botón disparador para evitar consultas automáticas
+                if st.button("📄 Generar Reporte en PDF", use_container_width=True, key="btn_trigger_pdf"):
+                    with st.spinner("Procesando PDF..."):
+                        
+                        # 2. La consulta a la BD SOLO ocurre AQUÍ tras hacer clic
+                        datos_l_pdf = generar_reporte_entradas_pdf(txt_universal, f_cantidad, f_fechas, f_estado, usuario_actual)
+                        
+                        if datos_l_pdf:
+                            # 3. Si hay datos, habilitamos el botón nativo de descarga
+                            st.download_button(
+                                label="⬇️ Descargar Archivo PDF",
+                                data=datos_l_pdf,
+                                file_name=f"SIALMED_Inventario_Entradas_{f_estado}_{date.today()}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True,
+                                key="btn_download_entradas_pdf"
+                            )
+                        else:
+                            st.warning("No hay datos para el filtro seleccionado.")
+        
+        
         st.write("")
         contenedor_guardar_modificacion = st.empty()
 
         total_paginas = math.ceil(total_registros_bd / REGISTROS_POR_PAGINA) if total_registros_bd > 0 else 1
 
-        lista_insumos_bd = crud_i.obtener_insumos(solo_activos=True)
+        lista_insumos_bd = crud_i.obtener_insumos(solo_activos=False, opt_estado='TODOS')
         nombres_insumos_opciones = [ins.nombre for ins in lista_insumos_bd] if lista_insumos_bd else []
 
         # ==============================================================================
         # 📉 RENDERIZADO DE LA GRILLA (EDICIÓN AMPLIA)
         # ==============================================================================
         if df_entradas.empty:
-            st.info("ℹ️ No existen actas de entrada registradas que coincidan con los criterios seleccionados.")
+            st.info("ℹ️ No existen entradas registradas que coincidan con los criterios seleccionados.")
         else:
             if puede_editar:
                 st.caption("💡 **Modo Operador:** Puede modificar las cantidades, reasignar el insumo o cambiar el estado del acta directamente en la grilla.")
@@ -191,14 +247,16 @@ def Vista_Entradas():
                     hide_index=True,
                     height=380,
                     key="editor_entradas_grilla",
-                    disabled=["ID", "CLASIFICACIÓN VED", "RESPONSABLE", "FECHA RECEPCIÓN"], 
+                    disabled=["ID", "CLASIFICACIÓN VED", "RESPONSABLE", "FECHA RECEPCIÓN", 'TIEMPO ENTREGA'], 
                     column_config={
                         "ID": st.column_config.NumberColumn(format="%d", width="small"),
                         "INSUMO MÉDICO": st.column_config.SelectboxColumn(options=nombres_insumos_opciones, width="medium", required=True),
                         "CÓDIGO LOTE": st.column_config.TextColumn(label='CÓD. DE LOTE', width=150),
                         "CLASIFICACIÓN VED": st.column_config.TextColumn(label='VED', width="small"),
                         "CANTIDAD": st.column_config.NumberColumn(label='CANT.', format="%d unds.", width="small", required=True, min_value=1),
-                        "FECHA RECEPCIÓN": st.column_config.DateColumn(label="F. RECEPCIÓN", format="DD/MM/YYYY", width=120),
+                        "FECHA PEDIDO": st.column_config.DateColumn(label="F. PEDIDO", format="DD-MM-YYYY", width=110),
+                        "FECHA RECEPCIÓN": st.column_config.DateColumn(label="F. RECEPCIÓN", format="DD-MM-YYYY HH:MM", width=120),
+                        "TIEMPO ENTREGA": st.column_config.NumberColumn(label='T. ENTREGA.', format="%d días.", width="small"),
                         "RESPONSABLE": st.column_config.TextColumn(width="medium"),
                         "ESTADO": st.column_config.SelectboxColumn(options=["VALIDO", "ANULADO"], width="small", required=True)
                     }
@@ -258,5 +316,5 @@ def Vista_Entradas():
                 st.rerun()
     
     except Exception as e:
-            print(f"🛑 Error crítico en la vista de entradas: {e}")
+            print(f"Error crítico en la vista de entradas: {e}")
             return [], 0
