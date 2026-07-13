@@ -17,7 +17,7 @@ def Vista_gestion_usuarios():
     st.title("👥 Control y Registro de Personal") 
     st.markdown("Gestión de operarios, privilegios de acceso y auditoría del sistema.")
 
-    # 🔄 REDISEÑO: Añadimos una columna extra para el combobox de Estado (Dividimos en 4 columnas)
+    # REDISEÑO: Añadimos una columna extra para el combobox de Estado (Dividimos en 4 columnas)
     c_buscar, c_rol, c_estado, c_btn = st.columns([2.5, 1.2, 1.1, 1.2]) 
     
     with c_buscar:
@@ -27,7 +27,7 @@ def Vista_gestion_usuarios():
         search_rol = st.selectbox("Rol", options=opciones_busqueda, label_visibility="collapsed")
         
     with c_estado:
-        # 📌 NUEVO FILTRO: Controla el filtrado del estado lógico de los operarios
+        # Controla el filtrado del estado lógico de los operarios
         search_estado = st.selectbox("Estado", options=["TODOS", "ACTIVOS", "INACTIVOS"], label_visibility="collapsed")
         
     with c_btn:
@@ -48,7 +48,7 @@ def Vista_gestion_usuarios():
         if search_rol != "TODOS" and u.rol.value != search_rol: 
             continue 
             
-        # 📌 NUEVO FILTRO EN PIPELINE: Evalúa la columna booleana 'u.activo'
+        # Evalúa la columna booleana 'u.activo'
         if search_estado == "ACTIVOS" and not u.activo:
             continue # Salta si el filtro pide activos y el usuario es False
         if search_estado == "INACTIVOS" and u.activo:
@@ -70,8 +70,8 @@ def Vista_gestion_usuarios():
         cabecera = st.columns(prop_u)
         cabecera[0].markdown("<p class='tabla-cabecera'>NOMBRE COMPLETO</p>", unsafe_allow_html=True)
         cabecera[1].markdown("<p class='tabla-cabecera'>USERNAME</p>", unsafe_allow_html=True)
-        cabecera[2].markdown("<p class='tabla-cabecera'>ROL / CONTACTO</p>", unsafe_allow_html=True)
-        cabecera[3].markdown("<p class='tabla-cabecera'>ESTADO</p>", unsafe_allow_html=True) # 📌 NUEVA COLUMNA EN TABLA
+        cabecera[2].markdown("<p class='tabla-cabecera'>ROL/CORREO</p>", unsafe_allow_html=True)
+        cabecera[3].markdown("<p class='tabla-cabecera'>ESTADO</p>", unsafe_allow_html=True) 
         cabecera[4].markdown("<p class='tabla-cabecera' style='text-align:center;'>EDIT</p>", unsafe_allow_html=True)
         cabecera[5].markdown("<p class='tabla-cabecera' style='text-align:center;'>DEL</p>", unsafe_allow_html=True)
         st.markdown("<hr class='linea-separadora'>", unsafe_allow_html=True)
@@ -85,7 +85,7 @@ def Vista_gestion_usuarios():
             col_user.markdown(f"<p class='tabla-celda-bold'>{u.username}</p>", unsafe_allow_html=True)
             col_rol.markdown(f"<p class='tabla-celda'>{u.rol.value}{email_display}</p>", unsafe_allow_html=True)
             
-            # 📌 NUEVO: Lógica de renderizado para el Badge de Estado (Reutiliza clases CSS de badges si tienes)
+            # Lógica de renderizado para el Badge de Estado (Reutiliza clases CSS de badges si tienes)
             if u.activo:
                 badge_html = "<span style='color:#238636; background-color:rgba(35,134,54,0.15); padding:3px 8px; border-radius:10px; font-size:12px; font-weight:bold;'>ACTIVO</span>"
             else:
@@ -147,7 +147,7 @@ def modal_edicion_usuario():
     
     pas = st.text_input("Cambiar Contraseña (Dejar vacío para mantener la actual):", type="password")
     
-    # 📌 NUEVO: Interruptor visual para activar/desactivar la cuenta del operador militar
+    # Interruptor visual para activar/desactivar la cuenta del operador militar
     # value=u_data.activo precarga el estado booleano (True/False) que está guardado en SQLite
     cuenta_activa = st.toggle("Cuenta de usuario activa", value=u_data.activo, help="Desactiva para bloquear el acceso al sistema sin borrar su historial.")
     
@@ -161,7 +161,7 @@ def modal_edicion_usuario():
             "username": usr, 
             "email": email, 
             "rol": rol_enum,
-            "activo": cuenta_activa # 📌 NUEVO: Envía el True o False capturado del st.toggle
+            "activo": cuenta_activa # Envía el True o False capturado del st.toggle
         }
         
         if pas: # Si escribió caracteres en el input, se incorpora para actualización de clave

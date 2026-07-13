@@ -2,14 +2,16 @@ import streamlit as st
 from models import create_db_and_tables
 from insumos1 import Insumos
 from lotes import Vista_Control_Lotes
-from entradas import Vista_Registrar_Entradas
-from salidas import modal_registro_salida_fifo
+from entradas import Vista_Entradas
+from salidas import Vista_Salidas, modal_registro_salida_fefo
 from usuarios import Vista_gestion_usuarios
+from analisis import Vista_Dashboard_Logistico
+import CRUDs.crud_usuarios as crud_u
 from login import Vista_Login
 import pandas as pd
 import re
-import json # 📌 NUEVO: Para guardar y leer la sesión en un archivo local
-import os # 📌 NUEVO: Para verificar si el archivo de sesión existe
+import json # Para guardar y leer la sesión en un archivo local
+import os # Para verificar si el archivo de sesión existe
 
 # ==============================================================================
 # 1. CONFIGURACIÓN DE PÁGINA E INICIALIZACIÓN
@@ -17,13 +19,17 @@ import os # 📌 NUEVO: Para verificar si el archivo de sesión existe
 st.set_page_config(page_title="SIAL-MED | Gestión de Insumos", layout="wide")
 create_db_and_tables()
 
+# Inicialización del Sistema si está vacío
+credenciales_iniciales = crud_u.verificar_y_crear_primer_admin()
+
+
+# CARGA DE CSS
 def cargar_css(archivo_css):
     try:
         with open(archivo_css, "r", encoding="utf-8") as f:
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
     except FileNotFoundError:
         st.error(f"No se encontró el archivo de estilos: {archivo_css}")
-
 cargar_css("styles.css")
 
 # ==============================================================================
@@ -34,6 +40,7 @@ SESSION_FILE = "session_cache.json" # Nombre del archivo JSON local donde se res
 def guardar_sesion_local():
     """Guarda los datos esenciales en el disco para soportar recargas de página."""
     datos = {
+        "user_id": st.session_state.get("user_id", None), # Captura el nombre completo del usuario
         "autenticado": st.session_state.get("usuario_autenticado", False), # Captura el estado actual de autenticación
         "rol": st.session_state.get("user_rol", None),                    # Captura el rol del usuario en la RAM
         "nombre": st.session_state.get("user_nombre_completo", "")        # Captura el nombre completo del operario
@@ -46,9 +53,9 @@ def cargar_sesion_local():
     if os.path.exists(SESSION_FILE): # Verifica si existe el archivo JSON de caché en la carpeta
         try:
             with open(SESSION_FILE, "r") as f: # Abre el archivo JSON en modo lectura
-                datos = json.load(f)           # Convierte el texto del archivo en un diccionario Python
-                
+                datos = json.load(f)           # Convierte el texto del archivo en un diccionario Python               
                 # Forzamos la restauración directa de los datos en la memoria RAM de Streamlit
+                st.session_state["user_id"]= datos.get("user_id", None)
                 st.session_state["usuario_autenticado"] = datos.get("autenticado", False)
                 st.session_state["user_rol"] = datos.get("rol", None)
                 st.session_state["user_nombre_completo"] = datos.get("nombre", "")
@@ -68,24 +75,25 @@ else:
     # Si el usuario ya está autenticado y navegando de forma activa por la interfaz
     guardar_sesion_local() # Reescribe el JSON en cada clic para asegurar que mantenga el estado más reciente
 
+
 # ==============================================================================
 # 3. ENRUTADOR DE CONTROL DE ACCESO
 # ==============================================================================
 if not st.session_state["usuario_autenticado"]:
-    Vista_Login()
+    Vista_Login(credenciales_iniciales)
     
     # Si el login fue exitoso en este ciclo, guardamos en el JSON inmediatamente
     if st.session_state["usuario_autenticado"]:
         guardar_sesion_local()
 
 else:
-    # 🔓 INTERFAZ DESBLOQUEADA (SIAL-MED)
+    # INTERFAZ DESBLOQUEADA (SIAL-MED)
     
     # ==========================================
     # 4. BARRA LATERAL (SIDEBAR DE NAVEGACIÓN)
     # ==========================================
     with st.sidebar:
-        # 📌 LOGO EN MENÚ LATERAL: Muestra el escudo arriba del nombre del sistema
+        # LOGO EN MENÚ LATERAL: Muestra el escudo arriba del nombre del sistema
         c_logo, _ = st.columns([1, 2])
         with c_logo:
             st.image("media/emblema proyecto.jpg", use_container_width=True)
@@ -98,12 +106,13 @@ else:
         st.caption(f"Privilegio: {st.session_state['user_rol']}") 
         st.divider()
         
-        # 📌 MODIFICACIÓN: Separamos los módulos "Catálogo", "Lotes" y "Entradas"
+        # Separamos los módulos "Catálogo", "Lotes", "Entradas", Salidas y Analisis logistico
         opciones_menu = [
             "📦 Catálogo Insumos", 
             "🔢 Lotes en Existencia", # Módulo enfocado en ver el stock y vencimientos
             "📥 Registrar Entradas" ,   # Módulo enfocado en los formularios de recepción
-            'Salidas'
+            '📤 Salidas',
+            '📊 Análisis Logistico'
         ]
         
         if str(st.session_state["user_rol"]).startswith("Admin"):
@@ -148,17 +157,19 @@ else:
         Insumos()
         
     elif menu == "🔢 Lotes en Existencia":
-        st.subheader("🔢 Consulta de Lotes e Inventario Disponible")
-        st.caption("Filtros avanzados por fecha de vencimiento (FEFO) y ubicación física.")
-        # Aquí llamarás a la función de lectura de lotes cuando la programemos
         Vista_Control_Lotes()
         
     elif menu == "📥 Registrar Entradas":
-        Vista_Registrar_Entradas()
+        Vista_Entradas()
     
-    elif menu=='Salidas':
-        modal_registro_salida_fifo()
+    elif menu=='📤 Salidas':
+        Vista_Salidas()
+
+    elif menu == '📊 Análisis Logistico':
+        Vista_Dashboard_Logistico()
         
     elif menu == "👥 Gestión de Personal":
         Vista_gestion_usuarios()
+
+    
         

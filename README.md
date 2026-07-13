@@ -12,6 +12,12 @@ Además, el sistema cuenta con un módulo de gobernanza que restringe acciones s
 
 > ⚠️ **Nota de Estado del Proyecto:** El sistema se encuentra actualmente en su **fase de desarrollo y construcción activa** (Avance #3). Se ha consolidado con éxito la arquitectura base, la estructura de persistencia local, las políticas de gobernanza, el pipeline de integración continua y la paridad de entornos. Los módulos avanzados de interfaz de usuario y analítica matemática se irán expandiendo en los próximos ciclos de trabajo.
 
+## 📚 Documentación Técnica Autogenerada
+Para generar el servidor local con la documentación interactiva de todas las funciones del proyecto basadas en sus Docstrings, ejecuta:
+
+```bash
+python -m pydoc -p 1234
+
 ---
 
 ## 🛠️ Arquitectura del Sistema (Doc-as-Code)
@@ -25,6 +31,7 @@ erDiagram
         int id_insumo PK
         string nombre
         string clasificacion_ved
+        boolean activo
     }
 
     Usuarios {
@@ -44,6 +51,8 @@ erDiagram
         string codigo_lote
         date fecha_vencimiento
         string ubicacion_fisica
+        boolean activo
+        string motivo_desactivacion
     }
 
     Entradas {
@@ -53,14 +62,17 @@ erDiagram
         date fecha_pedido
         date fecha_recepcion
         int cantidad
+        string estado
     }
 
     Salidas {
         int id_salida PK
         int id_usuario FK
         date fecha
-        string orden_medica
-        string paciente
+        string orden_salida
+        string paciente_destino
+        string razon_salida
+        string estado
     }
 
     DetallesSalida {

@@ -1,144 +1,316 @@
 import streamlit as st
 import pandas as pd
-import CRUDs.crud_salidas as crud_s
-import CRUDs.crud_insumos as crud_i 
-from datetime import datetime
+import CRUDs.crud_salidas as crud_salidas
+from registro_salidas import modal_registro_salida_fefo
+from reportes_salidas import generar_reporte_salidas_excel, generar_reporte_salidas_pdf
+from models import Rol
+from insumos1 import usuario_tiene_permiso_escritura
+from datetime import date, timedelta
 import time
+import math
 
-@st.dialog("📤 Registrar Despacho (FIFO)", width="large")
-def modal_registro_salida_fifo():
-    """
-    Formulario dinámico que permite acumular múltiples medicamentos en una misma
-    orden médica, calculando las ubicaciones FIFO en tiempo real.
-    """
-    contenedor_alertas = st.empty()
-    
-    # Inicializadores de la memoria temporal de la sesión (RAM de la vista)
-    if "carrito_insumos" not in st.session_state:
-        st.session_state.carrito_insumos = []
-    if "hoja_ruta_despacho" not in st.session_state:
-        st.session_state.hoja_ruta_despacho = None
+def Vista_Salidas():
+    try:
+        """
+        PANEL DE CONTROL DE DESPACHOS DE SALIDAS - SIAL-MED
+        Doble Grilla Editora Interactiva (Maestra-Detalle) optimizada para st.data_editor.
+        """
+        if "pagina_salidas" not in st.session_state:
+            st.session_state["pagina_salidas"] = 1
+        if "hoja_ruta_despacho" not in st.session_state:
+            st.session_state["hoja_ruta_despacho"] = None
 
-    # --- PANTALLA DE ÉXITO: MOSTRAR ALERTA FINAL DE RETIRO ---
-    if st.session_state.hoja_ruta_despacho:
-        st.success("🎉 ¡Orden Médica Registrada con Éxito en el Sistema!")
-        st.markdown("### 📋 GUÍA DE RECOLECCIÓN EN ESTANTES PARA EL OPERARIO:")
-        st.dataframe(pd.DataFrame(st.session_state.hoja_ruta_despacho), use_container_width=True, hide_index=True)
-        
-        if st.button("FINALIZAR Y CERRAR VENTANA", use_container_width=True, type="primary"):
-            st.session_state.hoja_ruta_despacho = None
-            st.session_state.carrito_insumos = []
-            st.rerun()
-        return
+        # Interceptor de Guía de recolección FEFO (Mantenido intacto)
+        if st.session_state["hoja_ruta_despacho"] is not None:
+            st.title("📦 Guía de Extracción en Almacén (Ruta FEFO)")
+            st.success("🎉 ¡Movimiento de Inventario Consolidado Exitosamente!")
+            with st.container(border=True):
+                st.markdown("### 📋 GUÍA DE EXTRACCIÓN EN ESTANTES PARA EL OPERARIO")
+                df_ruta = pd.DataFrame(st.session_state["hoja_ruta_despacho"])
+                st.dataframe(df_ruta, use_container_width=True, hide_index=True)
+                if st.button("🏁 CONFIRMAR EXTRACCIÓN Y VOLVER", use_container_width=True):
+                    st.session_state["hoja_ruta_despacho"] = None
+                    st.rerun()
+            return
 
-    # --- DATOS GENERALES (SE ESCRIBEN UNA SOLA VEZ) ---
-    c1, c2 = st.columns(2)
-    with c1:
-        txt_orden = st.text_input("Código de Orden Médica (Único) *", placeholder="Ej: ORD-2026-A")
-    with c2:
-        txt_paciente = st.text_input("Nombre Completo del Paciente *", placeholder="Ej: Teniente Carlos Gómez")
+        puede_editar = usuario_tiene_permiso_escritura()
+        contenedor_titulo = st.empty()
 
-    st.divider()
-
-    # --- PANEL COLECTOR DE RENGLONES ---
-    st.markdown("##### ➕ Agregar Medicamento a la Receta")
-    
-    lista_insumos = crud_i.obtener_todos_insumos() 
-    dict_insumos = {ins.nombre.upper(): ins.id_insumo for ins in lista_insumos}
-    
-    col_sel_med, col_cant, col_btn_add = st.columns([2.5, 1.2, 1])
-    
-    with col_sel_med:
-        medicina_sel = st.selectbox("Seleccione el Medicamento:", [""] + list(dict_insumos.keys()), key="sel_med_salida")
-    
-    with col_cant:
-        cant_solicitada = st.number_input("Cantidad:", min_value=1, value=1, step=1, key="num_cant_salida")
-
-    # Muestra dinámicamente la ubicación del lote que se afectará justo antes de añadirlo
-    if medicina_sel != "":
-        id_insumo_sel = dict_insumos[medicina_sel]
-        # Obtenemos los lotes para informarle la ubicación al operador en vivo
-        lotes_compatibles = crud_s.obtener_lotes_disponibles_fifo(id_insumo_sel)
-        if lotes_compatibles:
-            primer_lote = lotes_compatibles[0] # El lote que se consumirá primero por FEFO/FIFO
+        # ==============================================================================
+        # 🎛️ PANEL DE FILTROS CENTRALIZADOS (Backend)
+        # ==============================================================================
+        with st.expander("🔍 Historial y Auditoría de Salidas (Filtros en Backend)", expanded=True):
+            f_col1, f_col2, f_col3 = st.columns([3, 1.5, 1])
             
-            # 🧠 Calculamos en caliente la suma de existencias de todos los lotes juntos
-            stock_total_en_almacen = sum(l.stock_disponible for l in lotes_compatibles)
-            
-            # Dibujamos un contenedor con la información unificada y súper visible
-            st.info(
-                f"📊 **ESTADO DE INVENTARIO PARA {medicina_sel}:**\n\n"
-                f"* 📦 **Stock TOTAL en Almacén:** `{stock_total_en_almacen} unidades` (Sumando todos los lotes disponibles).\n"
-                f"* 🎯 **Lote de Consumo Prioritario (FIFO):** `{primer_lote.codigo_lote}` (Vence el {primer_lote.fecha_vencimiento.strftime('%d/%m/%Y')}).\n"
-                f"* 📍 **Ubicación Física en Estante:** **{primer_lote.ubicacion_fisica.upper()}** (Hay {primer_lote.stock_disponible} u. en este lote)."
-            )
-        else:
-            st.error("❌ No hay existencias de este insumo en el almacén.")
-
-    with col_btn_add:
-        st.markdown("<div style='padding-top:24px;'></div>", unsafe_allow_html=True)
-        if st.button("➕ ANEXAR", use_container_width=True):
-            if medicina_sel == "":
-                st.toast("⚠️ Seleccione un medicamento primero.")
-            else:
-                # Verificar si ya metió el mismo medicamento para consolidar la cantidad
-                id_insumo_sel = dict_insumos[medicina_sel]
-                existe = False
-                for item in st.session_state.carrito_insumos:
-                    if item["id_insumo"] == id_insumo_sel:
-                        item["cantidad"] += int(cant_solicitada)
-                        existe = True
-                        break
+            with f_col1:
+                txt_universal = st.text_input(
+                    "Buscador Universal:", 
+                    placeholder="Paciente, Destino o N° de Orden...", 
+                    key="fs_universal"
+                ).strip()
                 
-                if not existe:
-                    st.session_state.carrito_insumos.append({
-                        "id_insumo": id_insumo_sel,
-                        "nombre_insumo": medicina_sel,
-                        "cantidad": int(cant_solicitada)
-                    })
-                st.toast(f"Anexado: {medicina_sel}")
-
-    # --- LISTA VISUAL DEL CARRITO ACTUAL ---
-    if st.session_state.carrito_insumos:
-        st.markdown("##### 🛒 Resumen de Medicamentos en esta Orden:")
-        df_visual = pd.DataFrame(st.session_state.carrito_insumos)
-        st.dataframe(df_visual[["nombre_insumo", "cantidad"]], column_config={"nombre_insumo": "MEDICAMENTO", "cantidad": "CANTIDAD TOTAL"}, use_container_width=True, hide_index=True)
-        
-        if st.button("🗑️ Vaciar Lista de Insumos", type="secondary"):
-            st.session_state.carrito_insumos = []
-            st.rerun()
-
-    # --- ACCIONES PRINCIPALES DE GUARDADO ---
-    st.divider()
-    c_save, c_cancel = st.columns(2)
-    with c_save:
-        if st.button("💾 CONSOLIDAR DESPACHO", use_container_width=True, type="primary"):
-            contenedor_alertas.empty()
-            
-            if not txt_orden.strip() or not txt_paciente.strip():
-                contenedor_alertas.warning("⚠️ Complete el Código de la Orden y el Paciente.")
-            elif not st.session_state.carrito_insumos:
-                contenedor_alertas.warning("⚠️ Debe anexar al menos un medicamento a la receta.")
-            else:
-                # Enviamos el paquete agrupado al backend inteligente
-                resultado = crud_s.registrar_despacho_combinado_fifo(
-                    orden_medica=txt_orden,
-                    paciente=txt_paciente,
-                    id_usuario=st.session_state.get("user_id", 1),
-                    lista_pedidos=st.session_state.carrito_insumos
+            with f_col2:
+                rango_fechas = st.date_input(
+                    "Fecha de Salida:", 
+                    value=[date.today()-timedelta(days=30), date.today()], 
+                    format="DD/MM/YYYY", 
+                    key="fs_fecha"
                 )
                 
-                # Gestión y control de la regla UNIQUE de la base de datos
-                if resultado == "ORDEN_DUPLICADA":
-                    contenedor_alertas.error(f"🛑 Error de Integridad: El Código de Orden Médica '{txt_orden.upper()}' ya fue registrado anteriormente. Ingrese un código único válido.")
-                elif isinstance(resultado, dict) and resultado.get("status") is True:
-                    # Guardamos la hoja de ruta total e invocamos el refresco
-                    st.session_state.hoja_ruta_despacho = resultado["despacho"]
-                    st.rerun()
-                else:
-                    contenedor_alertas.error(resultado) # Imprime alertas si falta stock en algún renglón
+            with f_col3:
+                opt_estado = st.selectbox(
+                    "Estado salida:", 
+                    ["VALIDO", "ANULADO", "TODOS"], 
+                    index=0, 
+                    key="fs_estado"
+                )
+
+
+        # ==============================================================================
+        # CONSULTA MAESTRA AL BACKEND PAGINADA
+        # ==============================================================================
+        REGISTROS_POR_PAGINA = 100
+        
+        lista_salidas, total_registros = crud_salidas.obtener_salidas_filtradas_paginadas(
+            txt_universal=txt_universal,
+            rango_fechas=rango_fechas,
+            opt_estado=opt_estado,
+            pagina_actual=st.session_state["pagina_salidas"],
+            registros_por_pagina=REGISTROS_POR_PAGINA
+        )
+
+        filas_maestro = []
+        for salida in lista_salidas:
+            nombre_completo = f"{salida.usuario.nombres.split()[0]} {salida.usuario.apellidos.split()[0]}"
+            
+            filas_maestro.append({
+                "VER": False,  # Tu columna exacta de la captura de pantalla
+                "ID": salida.id_salida,
+                "ORDEN DE SALIDA": salida.orden_salida,
+                "RAZÓN DE SALIDA": salida.razon_salida,
+                "FECHA": salida.fecha,
+                "DESTINO / PACIENTE": salida.paciente_destino,
+                "RESPONSABLE": nombre_completo,
+                "ESTADO": salida.estado.value if hasattr(salida.estado, "value") else salida.estado
+            })
+
+        if filas_maestro:
+            df_maestro_final = pd.DataFrame(filas_maestro)
+        else:
+            df_maestro_final = pd.DataFrame(columns=["VER", "ID", "ORDEN DE SALIDA", "FECHA", "DESTINO / PACIENTE", "RAZÓN DE SALIDA", "RESPONSABLE", "ESTADO"])
+
+        contenedor_titulo.markdown(
+            f"<h2 style='margin-bottom: 0;'>📦 Control de Órdenes y Salidas ({total_registros} registros filtrados)</h2>", 
+            unsafe_allow_html=True
+        )
+
+        col_rep1, col_rep2, _, f_col_btn = st.columns([2, 2, 1, 2])
+
+        with f_col_btn:
+                if puede_editar and st.button("📤 NUEVA SALIDA (FEFO)", use_container_width=True, type="primary"):
+                    modal_registro_salida_fefo()
+
+        if st.session_state.get("user_rol") == Rol.Administrador:
+            
+            usuario_actual = st.session_state.get("user_nombre_completo", "OPERADOR SIAL-MED")
+            with col_rep1:
+                if st.button("📊 Generar Reporte en Excel (.xlsx)", use_container_width=True):
+                    with st.spinner("Procesando Excel..."):
+                        # La consulta a la BD SOLO ocurre AQUÍ, tras hacer clic
+                        data_xlsx = generar_reporte_salidas_excel(
+                            txt_universal, rango_fechas, opt_estado, 
+                            usuario_actual
+                        )
+                        
+                        if data_xlsx:
+                            st.download_button(
+                                label="⬇️ Descargar Archivo Excel",
+                                data=data_xlsx,
+                                file_name=f"salidas_estructuradas_{date.today()}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True
+                            )
+                        else:
+                            st.warning("No hay datos para el filtro seleccionado.")
+
+            with col_rep2:
+                if st.button("📄 Generar Reporte en PDF", use_container_width=True):
+                    with st.spinner("Procesando PDF..."):
+                        # La consulta a la BD SOLO ocurre AQUÍ, tras hacer clic
+                        data_pdf = generar_reporte_salidas_pdf(
+                            txt_universal, rango_fechas, opt_estado, 
+                            usuario_actual
+                        )
+                        
+                        if data_pdf:
+                            st.download_button(
+                                label="⬇️ Descargar Archivo PDF",
+                                data=data_pdf,
+                                file_name=f"auditoria_salidas_{date.today()}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
+                        else:
+                            st.warning("No hay datos para el filtro seleccionado.")
+
+        st.write("")
+        contenedor_guardar_modificacion = st.empty()
+
+        # ==============================================================================
+        # 📝 TABLA MAESTRA CON LA COLUMNA 'VER' 
+        # ==============================================================================
+        st.markdown("##### 🧾 Actas de Salidas Registradas (Marque la casilla 'VER' para inspeccionar medicamentos)")
+        
+        # 1. Recuperamos el ID que está activo actualmente en el sistema
+        if "id_salida_activa" not in st.session_state:
+            st.session_state["id_salida_activa"] = None
+
+        # 2. Sincronizamos el DataFrame visual: forzamos True SOLO en la fila que coincide con el ID activo
+        if not df_maestro_final.empty:
+            df_maestro_final["VER"] = df_maestro_final["ID"] == st.session_state["id_salida_activa"]
+
+        grilla_maestra_editada = st.data_editor(
+            df_maestro_final,
+            use_container_width=True,
+            hide_index=True,
+            height=370,
+            key="editor_maestro_salidas",
+            disabled=["ID", "FECHA", "RAZÓN DE SALIDA", "RESPONSABLE"] if puede_editar else df_maestro_final.columns.tolist(),
+            column_config={
+                "VER": st.column_config.CheckboxColumn(width="small", help="Marque para cargar medicamentos"),
+                "ID": st.column_config.NumberColumn(label='ID', format="%d", width="small"),
+                "FECHA": st.column_config.DatetimeColumn(format="DD/MM/YYYY HH:mm", width="medium"),
+                "ORDEN DE SALIDA": st.column_config.TextColumn(width="medium", required=True),
+                "DESTINO / PACIENTE": st.column_config.TextColumn(width="medium", required=True),
+                "RAZÓN DE SALIDA": st.column_config.TextColumn(width="medium", required=True),
+                "RESPONSABLE": st.column_config.TextColumn(width="medium"),
+                "ESTADO": st.column_config.SelectboxColumn(options=["VALIDO", "ANULADO"], width="small", required=True)
+            }
+        )
+
+        # ==============================================================================
+        # 🔄 INTERCEPTOR DE CLIC: GARANTIZA SELECCIÓN ÚNICA Y CONTROL FLUJO
+        # ==============================================================================
+        cambios_maestro_raw = st.session_state.get("editor_maestro_salidas", {}).get("edited_rows", {})
+
+        id_salida_target = st.session_state["id_salida_activa"]
+
+        for indice_str, diccionario_cambios in cambios_maestro_raw.items():
+            if "VER" in diccionario_cambios:
+                idx = int(indice_str)
+                if idx < len(df_maestro_final):
+                    # CASO A: El usuario marcó una casilla nueva como True
+                    if diccionario_cambios["VER"] is True:
+                        nuevo_id = df_maestro_final.iloc[idx]["ID"]
+                        if nuevo_id != st.session_state["id_salida_activa"]:
+                            st.session_state["id_salida_activa"] = nuevo_id
+                            st.rerun()  # Reinicia para limpiar cualquier otra casilla marcada
                     
-    with c_cancel:
-        if st.button("CANCELAR Y SALIR", use_container_width=True):
-            st.session_state.carrito_insumos = []
-            st.rerun()
+                    # CASO B: El usuario desmarcó la casilla que ya estaba activa (vuelve a False)
+                    elif diccionario_cambios["VER"] is False:
+                        if df_maestro_final.iloc[idx]["ID"] == st.session_state["id_salida_activa"]:
+                            st.session_state["id_salida_activa"] = None
+                            st.rerun()
+
+        # Vinculamos la variable de extracción de detalles al estado oficial consolidado
+        id_salida_target = st.session_state["id_salida_activa"]
+
+        # Paginación
+        total_paginas = math.ceil(total_registros / REGISTROS_POR_PAGINA) if total_registros > 0 else 1
+        c_pag1, c_pag2, c_pag3 = st.columns([1.5, 2, 1.5])
+        with c_pag2:
+            st.markdown(f"<p style='text-align:center; color:gray; font-size:12px;'>Pág <b>{st.session_state['pagina_salidas']}</b> de {total_paginas}</p>", unsafe_allow_html=True)
+        with c_pag1:
+            if st.button("⬅️ Anterior", use_container_width=True, key="btn_s_ant", disabled=(st.session_state["pagina_salidas"] == 1)):
+                st.session_state["pagina_salidas"] -= 1
+                st.rerun()
+        with c_pag3:
+            if st.button("Siguiente ➡️", use_container_width=True, key="btn_s_sig", disabled=(st.session_state["pagina_salidas"] >= total_paginas)):
+                st.session_state["pagina_salidas"] += 1
+                st.rerun()
+
+        st.write("---")
+
+        
+
+        df_para_editar = pd.DataFrame() 
+        
+        if id_salida_target is not None:
+            st.markdown(f"##### 💊 Insumos Médicos Despachados en la Aalida seleccionada: `#{id_salida_target}`")
+            print(id_salida_target)
+            
+            # Invocamos la función de tu backend
+            tuplas_detalles = crud_salidas.obtener_detalles_insumos_por_acta(id_salida_target)
+            
+            filas_detalle = []
+            for tupla in tuplas_detalles:
+                # tupla[0] = id_detalle_salida (int)
+                # tupla[1] = id_salida (int)
+                # tupla[2] = nombre del insumo (str)
+                # tupla[3] = codigo_lote (str)
+                # tupla[4] = cantidad (int)
+                
+                filas_detalle.append({
+                    "ID DETALLE": tupla[0],
+                    "INSUMO MÉDICO": tupla[2],
+                    "CÓDIGO DE LOTE": tupla[3],
+                    "CANTIDAD": tupla[4]
+                })
+            
+            if filas_detalle:
+                df_para_editar = pd.DataFrame(filas_detalle)
+                
+                grilla_detalles_editada = st.data_editor(
+                    df_para_editar,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=180,
+                    key="editor_detalles",
+                    disabled=["ID DETALLE", "INSUMO MÉDICO", "CÓDIGO DE LOTE"] if puede_editar else df_para_editar.columns.tolist(),
+                    column_config={
+                        "ID DETALLE": st.column_config.NumberColumn(format="%d", width="small"),
+                        "CANTIDAD": st.column_config.NumberColumn(format="%d unds.", width="small", required=True, min_value=0)
+                    }
+                )
+            else:
+                st.info("ℹ️ Esta orden de salida no contiene renglones de insumos registrados.")
+        else:
+            st.info("💡 Por favor, marque la casilla de la columna 'VER' en cualquier fila de la tabla superior para inspeccionar y auditar sus insumos correspondientes.")
+
+        # ==============================================================================
+        # 💾 FILTRADO AUTOMÁTICO (Evita que la columna 'VER' active el botón de guardar)
+        # ==============================================================================
+        estado_detalle_widget = st.session_state.get("editor_detalles", {})
+        cambios_detalle = estado_detalle_widget.get("edited_rows", {}) if isinstance(estado_detalle_widget, dict) else {}
+
+        # Filtramos limpiando la columna "VER" para no enviarla al CRUD y que no levante alertas falsas
+        cambios_maestro_reales = {}
+        for idx_m, modifs in cambios_maestro_raw.items():
+            modifs_sin_virtual = {k: v for k, v in modifs.items() if k != "VER"}
+            if modifs_sin_virtual:  # Si de verdad editó campos como Oficio, Paciente o Estado
+                cambios_maestro_reales[idx_m] = modifs_sin_virtual
+
+        # El botón se renderiza ÚNICAMENTE ante ediciones reales en base de datos
+        if puede_editar and (cambios_maestro_reales or cambios_detalle):
+            with contenedor_guardar_modificacion:
+                st.warning("⚠️ Modificaciones locales detectadas en la información. Guarde para consolidar la orden y stock.")
+                
+                c_save, _ = st.columns([1.5, 4])
+                with c_save:
+                    if st.button("💾 GUARDAR CAMBIOS DE SALIDAS", use_container_width=True, type="primary"):
+                        resultado = crud_salidas.actualizar_registros_salidas_masivo(
+                            cambios_cabecera=cambios_maestro_reales,
+                            cambios_detalle=cambios_detalle,
+                            df_maestro=df_maestro_final,
+                            df_detalle=df_para_editar
+                        )
+                        
+                        if resultado is True:
+                            st.success("✔️ ¡Datos actualizados con éxito!")
+                            time.sleep(1.3)
+                            st.rerun()
+                        else:
+                            st.error(resultado)
+
+    except Exception as e:
+            print(f"Error crítico en la vista de salidas: {e}")

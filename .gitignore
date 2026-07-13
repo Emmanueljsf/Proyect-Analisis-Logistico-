@@ -6,6 +6,8 @@ ENV/
 
 # Base de datos local (SIAL-MED)
 Control_insumos.db
+Control_insumos.db-shm
+Control_insumos.db-wal
 
 # Caché de Streamlit y Python
 __pycache__/
@@ -19,3 +21,9 @@ session_cache.json
 
 # informacion confidencial
 .env
+
+# archivos innecesarios o de prueba
+init_db.py
+generar_data_prueba.py
+reportes_prueba.py
+prueba_salidas.py
