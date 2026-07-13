@@ -8,7 +8,7 @@ from datetime import date
 import time
 import math
 
-def Vista_Control_Lotes()
+def Vista_Control_Lotes():
     """
     Renderiza el control de lotes con filtros procesados en el backend
     y paginación local de 50 en 50 para alto rendimiento.
