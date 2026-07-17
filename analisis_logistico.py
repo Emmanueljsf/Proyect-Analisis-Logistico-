@@ -192,7 +192,7 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
                 if stock == 0:
                     return "🔴 CRÍTICO (SIN STOCK)"
                 elif stock <= rop:
-                    return "🌕 ADVERTENCIA (REORDEN)"
+                    return "🟡 ADVERTENCIA (REORDEN)"
                 return "🟢 ÓPTIMO"
 
             df_rop_final["semaforo"] = df_rop_final.apply(asignar_semaforo_abastecimiento, axis=1)
