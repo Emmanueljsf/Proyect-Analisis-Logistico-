@@ -3,11 +3,12 @@ import pandas as pd
 import CRUDs.crud_salidas as crud_salidas
 from registro_salidas import modal_registro_salida_fefo
 from reportes_salidas import generar_reporte_salidas_excel, generar_reporte_salidas_pdf
-from models import Rol
+from bd.models import Rol
 from insumos1 import usuario_tiene_permiso_escritura
 from datetime import date, timedelta
 import time
 import math
+import base64
 
 def Vista_Salidas():
     try:
@@ -24,12 +25,35 @@ def Vista_Salidas():
         if st.session_state["hoja_ruta_despacho"] is not None:
             st.title("📦 Guía de Extracción en Almacén (Ruta FEFO)")
             st.success("🎉 ¡Movimiento de Inventario Consolidado Exitosamente!")
+            
+            # DESCARGA DEL REPORTE DE VENCIMIENTO
+            acta_pdf = st.session_state.get("acta_perdida_pendiente_pdf")
+            if acta_pdf is not None:
+                orden_pdf = st.session_state.get("acta_perdida_pendiente_orden", "acta_perdida")
+                
+                
+                # Inyección de Script HTML para forzar descarga automática en el navegador
+                b64_pdf = base64.b64encode(acta_pdf).decode('utf-8')
+                js_download_script = f"""
+                    <a id="download_link" href="data:application/pdf;base64,{b64_pdf}" download="acta_perdida_lote_{orden_pdf}.pdf" style="display:none;"></a>
+                    <script>
+                        document.getElementById('download_link').click();
+                    </script>
+                """
+                st.components.v1.html(js_download_script, height=0)
+                st.success("✔️ Se ha descargado el Acta Oficial de Pérdida y ha sido enviada automáticamente a tu carpeta de descargas.")
+                st.info("Por favor, verifique su barra de descargas, proceda a imprimirla y recabar las firmas correspondientes.")
+                st.write("---")
+
             with st.container(border=True):
                 st.markdown("### 📋 GUÍA DE EXTRACCIÓN EN ESTANTES PARA EL OPERARIO")
                 df_ruta = pd.DataFrame(st.session_state["hoja_ruta_despacho"])
                 st.dataframe(df_ruta, use_container_width=True, hide_index=True)
+                
                 if st.button("🏁 CONFIRMAR EXTRACCIÓN Y VOLVER", use_container_width=True):
                     st.session_state["hoja_ruta_despacho"] = None
+                    st.session_state["acta_perdida_pendiente_pdf"] = None
+                    st.session_state["acta_perdida_pendiente_orden"] = None
                     st.rerun()
             return
 
@@ -37,7 +61,7 @@ def Vista_Salidas():
         contenedor_titulo = st.empty()
 
         # ==============================================================================
-        # 🎛️ PANEL DE FILTROS CENTRALIZADOS (Backend)
+        # 🎛️ PANEL DE FILTROS
         # ==============================================================================
         with st.expander("🔍 Historial y Auditoría de Salidas (Filtros en Backend)", expanded=True):
             f_col1, f_col2, f_col3 = st.columns([3, 1.5, 1])
@@ -52,7 +76,7 @@ def Vista_Salidas():
             with f_col2:
                 rango_fechas = st.date_input(
                     "Fecha de Salida:", 
-                    value=[date.today()-timedelta(days=30), date.today()], 
+                    value=[date.today()-timedelta(days=15), date.today()], 
                     format="DD/MM/YYYY", 
                     key="fs_fecha"
                 )
@@ -244,17 +268,21 @@ def Vista_Salidas():
             
             filas_detalle = []
             for tupla in tuplas_detalles:
-                # tupla[0] = id_detalle_salida (int)
-                # tupla[1] = id_salida (int)
-                # tupla[2] = nombre del insumo (str)
-                # tupla[3] = codigo_lote (str)
-                # tupla[4] = cantidad (int)
+                # tupla[0] = id_detalle
+                # tupla[1] = id_salida
+                # tupla[2] = nombre insumo
+                # tupla[3] = VED (str)
+                # tupla[4] = codigo_lote (str)
+                # tupla[5] = cantidad (int)
+                
+                ved = tupla[3] 
                 
                 filas_detalle.append({
                     "ID DETALLE": tupla[0],
                     "INSUMO MÉDICO": tupla[2],
-                    "CÓDIGO DE LOTE": tupla[3],
-                    "CANTIDAD": tupla[4]
+                    "CÓDIGO DE LOTE": tupla[4], # Corregido de tupla[3] a tupla[4]
+                    'VED': 'VITAL' if ved == 'V' else 'ESENCIAL' if ved == 'E' else 'DESEABLE',
+                    "CANTIDAD": tupla[5]       # Corregido de tupla[4] a tupla[5]
                 })
             
             if filas_detalle:
@@ -264,9 +292,8 @@ def Vista_Salidas():
                     df_para_editar,
                     use_container_width=True,
                     hide_index=True,
-                    height=180,
                     key="editor_detalles",
-                    disabled=["ID DETALLE", "INSUMO MÉDICO", "CÓDIGO DE LOTE"] if puede_editar else df_para_editar.columns.tolist(),
+                    disabled=["ID DETALLE", "INSUMO MÉDICO", 'VED', "CÓDIGO DE LOTE"] if puede_editar else df_para_editar.columns.tolist(),
                     column_config={
                         "ID DETALLE": st.column_config.NumberColumn(format="%d", width="small"),
                         "CANTIDAD": st.column_config.NumberColumn(format="%d unds.", width="small", required=True, min_value=0)
@@ -313,4 +340,5 @@ def Vista_Salidas():
                             st.error(resultado)
 
     except Exception as e:
-            print(f"Error crítico en la vista de salidas: {e}")
+        print(f"Error crítico en la vista de salidas: {e}")
+        return st.error(f"Error crítico en la vista de salidas: {e}")

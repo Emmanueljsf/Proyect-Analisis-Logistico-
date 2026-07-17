@@ -3,6 +3,7 @@ import pandas as pd
 import CRUDs.crud_salidas as crud_s
 import CRUDs.crud_insumos as crud_i 
 from datetime import datetime
+from reportes_salidas import generar_reporte_perdida_caducidad_pdf
 
 @st.dialog("📤 Registrar Despacho y Movimientos de Inventario", width="large")
 def modal_registro_salida_fefo():
@@ -234,40 +235,64 @@ def modal_registro_salida_fefo():
         
         with c_save:
             if st.button("💾 CONSOLIDAR ACTA DE DESPACHO", use_container_width=True, type="primary"):
-                if not txt_orden.strip() or not txt_orden.strip():
+                if not txt_orden.strip() or not txt_destino.strip():
                     contenedor_errores.error("⚠️ Los campos 'Orden de salida' y 'Paciente/Destino' son de carácter obligatorio.")
                 elif not st.session_state.carrito_insumos:
                     contenedor_errores.error("⚠️ El carrito de despachos se encuentra vacío.")
                 else:
-                    # 🛡️ CORTAFUEGOS PYTHON 3.8: Forzar un entero válido si user_id es None o no existe
                     id_usuario_ram = st.session_state.get("user_id")
                     id_usuario_final = int(id_usuario_ram) if id_usuario_ram is not None else 1
 
-                    # Ejecutamos la persistencia en lote hacia el backend
+                    # Clonamos el carrito en RAM para asegurar que no se pierdan cantidades ni datos al borrarlo
+                    copia_carrito_auditoria = list(st.session_state.carrito_insumos)
+
                     resultado = crud_s.registrar_despacho_combinado_fefo(
                         orden_salida=txt_orden,
                         paciente_destino=txt_destino,
                         razon_salida=txt_razon,
-                        id_usuario=id_usuario_final,  # Pasamos la variable blindada
+                        id_usuario=id_usuario_final,
                         lista_pedidos=st.session_state.carrito_insumos
                     )
                     
-                    # Evaluación atómica de la respuesta emitida por el motor SQLite bajo modo WAL
-                    if resultado == "ORDEN_DUPLICADA":
-                        contenedor_errores.error(f"🛑 Falla de Restricción UNIQUE: El Identificador/Oficio '{txt_orden}' ya existe en el kárdex.")
                     
-                    elif isinstance(resultado, dict) and resultado.get("status") is True:
-                        # SOLUCIÓN MAESTRA: Forzamos la persistencia en el estado global de la aplicación
+                    if isinstance(resultado, dict) and resultado.get("status") is True:
+                        if txt_razon == "Perdida por Caducidad":
+                            datos_cabecera = {
+                                "orden_salida": txt_orden,
+                                "paciente_destino": txt_destino,
+                                "fecha": datetime.now()
+                            }
+                            
+                            # Reconstrucción de insumos con las cantidades reales del carrito en memoria
+                            insumos_reporte = []
+                            for item in copia_carrito_auditoria:
+                                # Buscamos el código de lote asignado consultando los lotes compatibles
+                                id_insumo_sel = item["id_insumo"]
+                                lotes = crud_s.obtener_lotes_disponibles_fefo(id_insumo_sel, razon_salida=txt_razon)
+                                obj_lote = next((l for l in lotes if l.id_lote == item["lote_especifico_id"]), None)
+                                cod_lote_txt = obj_lote.codigo_lote if obj_lote else "LOTE"
+
+                                insumos_reporte.append({
+                                    "nombre_insumo": item["nombre_insumo"],
+                                    "codigo_lote": cod_lote_txt,
+                                    "cantidad": int(item["cantidad"]) # Fijación de cantidad real
+                                })
+                            
+                            usuario_actual = st.session_state.get("user_nombre_completo", "OPERADOR SIAL-MED")
+                            pdf_bytes = generar_reporte_perdida_caducidad_pdf(datos_cabecera, insumos_reporte, usuario_actual)
+                            
+                            # Almacenamos los bytes del PDF en el estado global
+                            st.session_state["acta_perdida_pendiente_pdf"] = pdf_bytes
+                            st.session_state["acta_perdida_pendiente_orden"] = txt_orden
+                        else:
+                            st.session_state["acta_perdida_pendiente_pdf"] = None
+
                         st.session_state["hoja_ruta_despacho"] = resultado["despacho"]
-                        # Limpiamos el carrito en RAM de forma segura post-guardado exitoso
                         st.session_state.carrito_insumos = []
-                        # Destruimos el estado del widget editor para que no colisione en la recarga
                         if "editor_carrito_salidas" in st.session_state:
                             del st.session_state["editor_carrito_salidas"]
-                        # 🔄 Cerramos el modal forzando el refresco de la pantalla principal
                         st.rerun()
                     else:
-                        # Captura quiebres de stock o bloqueos de negocio detectados
                         contenedor_errores.error(resultado)
                         
         with c_cancel:
@@ -279,4 +304,5 @@ def modal_registro_salida_fefo():
                 st.rerun()
 
     except Exception as e:
+            st.error(f"Error crítico en el formulario de registro de salidas: {e}")
             print(f"Error crítico en el formulario de registro de salidas: {e}")

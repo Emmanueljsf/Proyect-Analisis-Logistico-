@@ -1,312 +1,304 @@
-from reportes import *
 import io
-from datetime import datetime, date
-import pandas as pd
+import re
 import math
-import CRUDs.crud_insumos as crud_insumos
-import CRUDs.crud_lotes_entradas as crud_le
-import CRUDs.crud_salidas as crud_salidas
-# Librerías estéticas y estructurales para Excel Nativo
+from datetime import datetime
+import pandas as pd
 from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Side, Border
+from openpyxl.styles import Font, Alignment, PatternFill
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.utils import get_column_letter
-# Librería para documentos inmutables PDF
-from fpdf import FPDF
+
+# Importación de la clase base institucional compartida y los estilos de la suite
+from reportes import (
+    PDFBaseSIALMED,
+    aplicar_membrete_excel,
+    autoajustar_columnas_excel,
+    FUENTE_CABECERA_TABLA,
+    FILL_AZUL_MILITAR,
+    ALINEAR_CENTRO,
+    ALINEAR_IZQ
+)
 
 # ==============================================================================
-# CAPA DE DISEÑO COMPARTIDA Y REUTILIZABLE (ESTILOS ESTÁNDAR SIAL-MED)
+# SECCIÓN: UTILERÍAS DE SANITIZACIÓN
 # ==============================================================================
 
-FUENTE_TITULO = Font(name="Arial", size=12, bold=True, color="000000")
-FUENTE_SUBTITULO = Font(name="Arial", size=11, bold=True, color="1F497D")
-FUENTE_METADATO = Font(name="Arial", size=10, bold=True)
-FUENTE_CABECERA_TABLA = Font(name="Arial", size=11, bold=True, color="FFFFFF")
-
-FILL_AZUL_MILITAR = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
-
-ALINEAR_CENTRO = Alignment(horizontal="center", vertical="center")
-ALINEAR_IZQ = Alignment(horizontal="left", vertical="center")
-ALINEAR_DER = Alignment(horizontal="right", vertical="center")  # <--- ESTA ERA LA QUE FALTABA
-
-
-def aplicar_membrete_excel(ws, ultima_letra_col: str, titulo_reporte: str, usuario_emisor: str) -> int:
+def limpiar_emojis(texto) -> str:
     """
-    Dibuja el encabezado institucional idéntico en cualquier hoja de Excel.
-    Retorna el número de fila donde debe comenzar la tabla de datos.
+    Remueve de forma estricta cualquier emoji, símbolo del plano suplementario,
+    dingbats, caracteres especiales no imprimibles y, de manera crítica, los 
+    selectores de variación (como \\ufe0f o \\ufe0e) que rompen la fuente Helvetica de FPDF.
+    Returns:
+        str: Cadena de texto limpia, decodificada de forma segura en 'latin1' 
+            y sin espacios en blanco redundantes en los extremos.
     """
-    ws.views.sheetView[0].showGridLines = True
+    if texto is None:
+        return ""
+    texto_str = str(texto)
     
-    # 1. Títulos combinados dinámicamente según el ancho de la tabla
-    ws.merge_cells(f"A1:{ultima_letra_col}1")
-    ws["A1"] = "GUARDIA NACIONAL BOLIVARIANA - DESTACAMENTO 134 (DABAJURO)"
-    ws["A1"].font = FUENTE_TITULO
-    ws["A1"].alignment = ALINEAR_CENTRO
-
-    ws.merge_cells(f"A2:{ultima_letra_col}2")
-    ws["A2"] = f"SIAL-MED: {titulo_reporte.upper()}"
-    ws["A2"].font = FUENTE_SUBTITULO
-    ws["A2"].alignment = ALINEAR_CENTRO
-
-    # 2. Bloque de Metadatos estándar
-    fecha_actual = datetime.now().strftime("%d/%m/%Y %I:%M %p")
-    ws["A4"] = "Generado por:"
-    ws["A4"].font = FUENTE_METADATO
-    ws["B4"] = usuario_emisor
+    # 1. Elimina selectores de variación invisible (U+FE00 a U+FE0F) que causan el error
+    texto_sin_selectores = re.sub(r'[\ufe00-\ufe0f]', '', texto_str)
     
-    # Colocamos la fecha en la penúltima y última columna de forma dinámica
-    letra_penultima = chr(ord(ultima_letra_col) - 1)
-    ws[f"{letra_penultima}4"] = "Fecha Emisión:"
-    ws[f"{letra_penultima}4"].font = FUENTE_METADATO
-    ws[f"{ultima_letra_col}4"] = f" {fecha_actual}"
+    # 2. Elimina caracteres del plano suplementario (emojis del plano U+10000 en adelante)
+    texto_sin_suplementarios = re.sub(r'[\U00010000-\U0010ffff]', '', texto_sin_selectores)
     
-    return 6  # La tabla comenzará siempre en la fila 6
-
-
-def autoajustar_columnas_excel(ws, num_columnas: int, fila_inicio_tabla: int):
-    """Algoritmo genérico para ajustar el ancho de las columnas omitiendo el membrete."""
-    for col_num in range(1, num_columnas + 1):
-        max_len = 0
-        col_letter = get_column_letter(col_num)
-        for row_num in range(fila_inicio_tabla, ws.max_row + 1):
-            cell_value = ws.cell(row=row_num, column=col_num).value
-            if cell_value:
-                max_len = max(max_len, len(str(cell_value)))
-        ws.column_dimensions[col_letter].width = max(max_len + 5, 15)
-
-
-class PDFBaseSIALMED(FPDF):
-    """Clase base unificada para todos los reportes institucionales con soporte modular de tablas."""
+    # 3. Elimina símbolos misceláneos, transporte, marcas y dingbats (U+2600 a U+27BF)
+    texto_limpio = re.sub(r'[\u2600-\u27BF]', '', texto_sin_suplementarios)
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Variables de control para la reimpresión automática en cambios de página
-        self.titulo_reporte = ""
-        self.usuario_emisor = ""
-        self.filtros_str = ""
-        self.anchos_columnas = []
-        self.titulos_columnas = []
-        self.alineaciones_columnas = []
-
-    def header(self):
-        """Membrete oficial que se repite automáticamente en cada nueva página."""
-        self.set_font('Arial', 'B', 11)
-        self.cell(0, 6, 'GUARDIA NACIONAL BOLIVARIANA - DESTACAMENTO 134', 0, 1, 'C')
-        self.set_font('Arial', 'B', 10)
-        self.cell(0, 6, 'SIAL-MED - CONTROL DE INSUMOS Y LOGÍSTICA MÉDICA', 0, 1, 'C')
-        self.ln(4)
-        
-    def footer(self):
-        """Pie de página automático."""
-        self.set_y(-15)
-        self.set_font('Arial', 'I', 8)
-        self.cell(0, 10, f'Página {self.page_no()}/{{nb}}', 0, 0, 'C')
-
-    def escribir_subcabecera_pdf(self, titulo: str, usuario: str, filtros: str):
-        """Renderiza los metadatos y filtros del reporte actual."""
-        self.set_font('Arial', 'B', 12)
-        self.cell(0, 8, titulo.upper(), 0, 1, 'L')
-        self.set_font('Arial', '', 9)
-        self.cell(0, 5, f'Fecha de Emisión: {datetime.now().strftime("%d/%m/%Y %I:%M %p")}', 0, 1, 'L')
-        self.cell(0, 5, f'Generado por: {usuario}', 0, 1, 'L')
-        self.cell(0, 5, f'Filtros Aplicados: {filtros}', 0, 1, 'L')
-        self.ln(5)
-
-    def _escribir_cabecera_tabla(self, tamano_fuente=8):
-        """Pinta la fila azul oscuro con los títulos de las columnas."""
-        self.set_fill_color(31, 73, 125)
-        self.set_text_color(255, 255, 255)
-        self.set_font('Arial', 'B', tamano_fuente)
-        
-        for idx, titulo in enumerate(self.titulos_columnas):
-            # Alineación adaptativa para los títulos
-            align_h = 'L' if idx == 1 or titulo in ['UBICACIÓN FÍSICA', 'UBICACIÓN', 'MOTIVO DE BAJA', 'NOMBRE DEL INSUMO'] else 'C'
-            self.cell(self.anchos_columnas[idx], 7, titulo, 1, 0, align_h, True)
-        
-        self.ln(7)
-        self.set_text_color(0, 0, 0) # Restaurar color de texto para los datos
-
-    def registrar_datos_tabla(self, titulo: str, usuario: str, filtros: str, anchos: list, titulos: list, alineaciones: list):
-        """Inicializa los parámetros de la tabla para que la clase sepa cómo redibujarla al saltar de página."""
-        self.titulo_reporte = titulo
-        self.usuario_emisor = usuario
-        self.filtros_str = filtros
-        self.anchos_columnas = anchos
-        self.titulos_columnas = titulos
-        self.alineaciones_columnas = alineaciones
-
+    # 4. Asegura la codificación estándar (reemplaza caracteres incompatibles por un espacio vacío o un fallback seguro)
+    texto_limpio_codificado = texto_limpio.encode('latin1', errors='ignore').decode('latin1')
     
+    return texto_limpio_codificado.strip()
+
+
 # ==============================================================================
-# SECCIÓN 4: REPORTE DE ANÁLISIS LOGÍSTICO (CON MEMBRETE MILITAR Y BLINDAJE UNICODE)
+# SECCIÓN: REPORTE DE PUNTO DE REORDEN (ROP)
 # ==============================================================================
 
-def generar_reporte_rop_excel(df_filtrado: pd.DataFrame, filtros_aplicados: dict, usuario_emisor: str) -> bytes:
-    """
-    Genera en memoria un archivo Excel (.xlsx) estructurado e institucional para la 
-    Planificación de Abastecimiento y Alertas de Puntos de Reorden (ROP) de SIAL-MED.
+def generar_reporte_rop_excel(df_rop: pd.DataFrame, filtros: dict, usuario_emisor: str) -> bytes:
+    """Genera el reporte analítico de Punto de Reorden (ROP) en formato Excel (.xlsx).
+    Aplica el membrete oficial, formato de colores institucional (Azul Militar),
+    alineación adaptativa y autoajuste de columnas.
 
-    Parámetros:
-    -----------
-    df_filtrado : pd.DataFrame
-        Matriz de datos procesados que contiene métricas logísticas: 'nombre_insumo', 
-        'clasificacion_ved', 'stock_disponible', 'cpd', 'lead_time_promedio', 'rop' y 'semaforo'.
-    filtros_aplicados : dict
-        Diccionario asociativo con los parámetros y rangos utilizados en la consulta.
-    usuario_emisor : str
-        Nombre y rango/cargo del funcionario militar responsable de la emisión del reporte.
+    Parametros:
+        df_rop: DataFrame con las columnas: 'nombre_insumo', 'clasificacion_ved', 
+            'stock_disponible', 'cpd', 'lead_time_promedio', 'rop' y 'semaforo'.
+        filtros: Diccionario con los parámetros de búsqueda aplicados.
+        usuario_emisor: Nombre del usuario que emite el reporte.
 
-    Retorna:
-    --------
-    bytes
-        Stream de datos binarios del archivo Excel listo para transferencia HTTP.
+    Returns:
+        bytes: Stream binario del archivo Excel, o b"" si el DataFrame está vacío.
     """
-    if df_filtrado.empty:
+    if df_rop.empty:
         return b""
-        
+
+    # Preparación de datos limpia para el archivo Excel (libre de emojis)
+    datos_matriz = []
+    for _, fila in df_rop.iterrows():
+        datos_matriz.append({
+            "MEDICAMENTO / INSUMO": limpiar_emojis(fila["nombre_insumo"]),
+            "VED": limpiar_emojis(fila["clasificacion_ved"]),
+            "STOCK REAL": int(fila["stock_disponible"]),
+            "CONS. DIARIO (CPD)": f"{float(fila['cpd']):.2f}",
+            "ESPERA PROM.": f"{float(fila['lead_time_promedio']):.2f}",
+            "PUNTO REORDEN (ROP)": int(fila["rop"]),
+            "SEMÁFORO DE ALERTA": limpiar_emojis(fila["semaforo"])
+        })
+
+    df_final = pd.DataFrame(datos_matriz)
+
     wb = Workbook()
     ws = wb.active
-    ws.title = "Alertas de Reorden ROP"
+    ws.title = "Análisis ROP"
     
-    # Renderizar membrete institucional de la Guardia Nacional Bolivariana hasta columna G
-    fila_inicio = aplicar_membrete_excel(ws, "G", "PLANIFICACIÓN DE ABASTECIMIENTO Y PUNTOS DE REORDEN", usuario_emisor)
-    
-    # ---- BLOQUE DE FILTROS APLICADOS ----
-    ws.cell(row=fila_inicio, column=1, value="Filtros Aplicados:").font = FUENTE_SUBTITULO
-    fila_inicio += 1
-    
-    filtros_texto = " | ".join([f"{k}: {str(v).upper()}" for k, v in filtros_aplicados.items()]) if filtros_aplicados else "NINGUNO"
-    ws.cell(row=fila_inicio, column=1, value=filtros_texto).font = Font(name="Arial", size=10, italic=True)
-    fila_inicio += 2  # Separación prudente para la tabla
-    
-    # ---- CABECERA DE LA TABLA ESTILO SIAL-MED ----
-    cabeceras = ["MEDICAMENTO / INSUMO", "VED", "STOCK REAL", "CONS. DIARIO (CPD)", "ESPERA PROM. (DÍAS)", "PUNTO REORDEN (ROP)", "SEMÁFORO DE ALERTA"]
-    for col_idx, texto in enumerate(cabeceras, start=1):
-        celda = ws.cell(row=fila_inicio, column=col_idx, value=texto)
-        celda.font = FUENTE_CABECERA_TABLA
-        celda.fill = FILL_AZUL_MILITAR
-        celda.alignment = ALINEAR_CENTRO
-        celda.border = Border(bottom=Side(style="medium", color="000000"))
-    
-    fila_actual = fila_inicio + 1
-    
-    # ---- VOLCADO Y FORMATEO DE FILAS ----
-    for _, fila in df_filtrado.iterrows():
-        # Limpieza de caracteres de control visual para Excel (Texto limpio en mayúsculas)
-        insumo_limpio = str(fila["nombre_insumo"]).replace("✔", "").strip().upper()
-        semaforo_limpio = str(fila["semaforo"]).replace("✔", "").strip().upper()
-        
-        ws.cell(row=fila_actual, column=1, value=insumo_limpio).alignment = ALINEAR_IZQ
-        ws.cell(row=fila_actual, column=2, value=str(fila["clasificacion_ved"]).upper()).alignment = ALINEAR_CENTRO
-        ws.cell(row=fila_actual, column=3, value=int(fila["stock_disponible"])).alignment = ALINEAR_DER
-        ws.cell(row=fila_actual, column=4, value=round(float(fila["cpd"]), 2)).alignment = ALINEAR_DER
-        ws.cell(row=fila_actual, column=5, value=round(float(fila["lead_time_promedio"]), 1)).alignment = ALINEAR_DER
-        ws.cell(row=fila_actual, column=6, value=round(float(fila["rop"]), 2)).alignment = ALINEAR_DER
-        
-        celda_alerta = ws.cell(row=fila_actual, column=7, value=semaforo_limpio)
-        celda_alerta.alignment = ALINEAR_CENTRO
-        celda_alerta.font = Font(name="Arial", size=10, bold=True)
-        
-        for col_idx in range(1, 8):
-            ws.cell(row=fila_actual, column=col_idx).border = Border(
-                bottom=Side(style="thin", color="CCCCCC"),
-                left=Side(style="thin", color="CCCCCC"),
-                right=Side(style="thin", color="CCCCCC")
-            )
-        fila_actual += 1
-        
-    autoajustar_columnas_excel(ws, 7, fila_inicio)
-    
-    buffer = io.BytesIO()
-    wb.save(buffer)
-    return buffer.getvalue()
+    # Renderizado del membrete oficial adaptado a 7 columnas (Letra G)
+    str_filtros = limpiar_emojis(", ".join([f"{k}: {v}" for k, v in filtros.items()]))
+    fila_tabla = aplicar_membrete_excel(
+        ws, 
+        ultima_letra_col="G", 
+        titulo_reporte=f"Análisis Logístico de Stock (Filtro: {str_filtros})", 
+        usuario_emisor=limpiar_emojis(usuario_emisor)
+    )
+
+    # Inyección y formateo de cabeceras de tabla
+    for col_num, column_title in enumerate(df_final.columns, 1):
+        cell = ws.cell(row=fila_tabla, column=col_num, value=column_title)
+        cell.font = FUENTE_CABECERA_TABLA
+        cell.fill = FILL_AZUL_MILITAR
+        cell.alignment = ALINEAR_CENTRO
+
+    # Inyección de las filas de datos con alineación adaptativa
+    for row_num, row_data in enumerate(dataframe_to_rows(df_final, index=False, header=False), fila_tabla + 1):
+        for col_num, val in enumerate(row_data, 1):
+            cell = ws.cell(row=row_num, column=col_num, value=val)
+            # El nombre del insumo (Col 1) se alinea a la izquierda, el resto centrado
+            cell.alignment = ALINEAR_IZQ if col_num == 1 else ALINEAR_CENTRO
+
+    # Ajuste dinámico inteligente del ancho de columnas
+    autoajustar_columnas_excel(ws, num_columnas=7, fila_inicio_tabla=fila_tabla)
+
+    excel_buffer = io.BytesIO()
+    wb.save(excel_buffer)
+    excel_buffer.seek(0)
+    return excel_buffer.getvalue()
 
 
+def generar_reporte_rop_pdf(df_rop: pd.DataFrame, filtros: dict, usuario_emisor: str) -> bytes:
+    """Genera el reporte de Punto de Reorden (ROP) en formato PDF institucional.
+    Diseñado en orientación vertical (Carta). Utiliza el motor adaptativo multilínea 
+    de la suite para evitar desbordes físicos al procesar insumos con nombres extensos.
 
+    Parametros:
+        df_rop: DataFrame con el análisis de stock (mismas columnas que la versión Excel).
+        filtros: Parámetros de búsqueda para el membrete superior.
+        usuario_emisor: Nombre del emisor del reporte.
 
-
-def generar_reporte_caducidad_excel(df_filtrado: pd.DataFrame, filtros_aplicados: dict, usuario_emisor: str) -> bytes:
+    Returns:
+        bytes: Flujo binario del archivo PDF listo para su descarga, o b"" si está vacío.
     """
-    Construye el libro Excel para la auditoría física de lotes con riesgo de vencimiento, 
-    alimentándose de la columna 'alerta_vencimiento' calculada bajo metodología FEFO.
-
-    Parámetros:
-    -----------
-    df_filtrado : pd.DataFrame
-        Lotes sanitarios procesados con métricas de cobertura y cantidad en riesgo.
-    filtros_aplicados : dict
-        Criterios vigentes aplicados en la consulta del panel SIAL-MED.
-    usuario_emisor : str
-        Firma textual del analista logístico emisor.
-
-    Retorna:
-    --------
-    bytes
-        Representación en bytes del archivo Excel generado.
-    """
-    if df_filtrado.empty:
+    if df_rop.empty:
         return b""
+
+    # Orientación vertical ('P'), tamaño carta ('letter') para uso administrativo
+    pdf = PDFBaseSIALMED(orientation='P', unit='mm', format='letter')
+    pdf.alias_nb_pages()
+    pdf.set_auto_page_break(True, 35)
+
+    titulo = "Reporte de Análisis: Punto de Reorden (ROP)"
+    str_filtros = limpiar_emojis(", ".join([f"{k}: {v}" for k, v in filtros.items()]))
+    usuario_limpio = limpiar_emojis(usuario_emisor)
+
+    # Definición exacta del layout físico en la hoja (Suma exacta = 195 mm útiles)
+    anchos = [65, 12, 22, 22, 22, 17, 35]
+    titulos = ['INSUMO', 'VED', 'STOCK', 'CPD', 'ESPERA', 'ROP', 'ESTADO']
+    alineaciones = ['L', 'C', 'C', 'C', 'C', 'C', 'C']
+
+    # Registro de metadatos en la clase base para la reconstrucción automatizada en saltos de página
+    pdf.registrar_datos_tabla(titulo, usuario_limpio, str_filtros, anchos, titulos, alineaciones)
+
+    # Inicialización del documento
+    pdf.add_page()
+    pdf.escribir_subcabecera_pdf(titulo, usuario_limpio, str_filtros)
+    pdf._escribir_cabecera_tabla(tamano_fuente=8.5)
+
+    # Renderizado iterativo bajo control del algoritmo de altura unificada
+    for _, fila in df_rop.iterrows():
+        # Extracción segura, sanitización de emojis y formateo estricto de campos
+        nombre_insumo = limpiar_emojis(fila["nombre_insumo"])
+        ved = limpiar_emojis(fila["clasificacion_ved"])[0].upper() if fila["clasificacion_ved"] else ""
+        stock = f"{int(fila['stock_disponible'])} unds."
+        cpd = f"{float(fila['cpd']):.2f} unds./día"
+        espera = f"{float(fila['lead_time_promedio']):.1f} días."
+        rop = f"{int(fila['rop'])} unds."
+        estado = limpiar_emojis(fila["semaforo"])
+
+        fila_datos = [nombre_insumo, ved, stock, cpd, espera, rop, estado]
         
+        # Invocación de la celda adaptativa multilínea para prevenir desbordes laterales o de página
+        pdf.imprimir_fila_adaptativa(fila_datos, tamano_fuente=7.5)
+
+    return bytes(pdf.output(dest='S'))
+
+
+# ==============================================================================
+# SECCIÓN: REPORTE DE PREVENCIÓN DE CADUCIDADES
+# ==============================================================================
+
+def generar_reporte_caducidad_excel(df_caducidad: pd.DataFrame, filtros: str, usuario_emisor: str) -> bytes:
+    """Genera el reporte de ciclo de vida e índice de mermas en formato Excel (.xlsx).
+    Estructura la información por lote indicando días de vida remanente, cobertura 
+    teórica frente al consumo y la cantidad física proyectada en riesgo de caducar.
+
+    Parametros:
+        df_caducidad: DataFrame con las columnas: 'codigo_lote', 'nombre_insumo', 
+            'stock_disponible', 'dias_para_vencer', 'dias_duracion_stock', 
+            'cantidad_riesgo' y 'alerta_vencimiento'.
+        filtros: Parámetros de consulta aplicados.
+        usuario_emisor: Nombre del usuario que emite el reporte.
+
+    Returns:
+        bytes: Stream binario del archivo Excel, o b"" si el DataFrame está vacío.
+    """
+    if df_caducidad.empty:
+        return b""
+
+    datos_matriz = []
+    for _, fila in df_caducidad.iterrows():
+        datos_matriz.append({
+            "CÓDIGO LOTE": limpiar_emojis(fila["codigo_lote"]),
+            "MEDICAMENTO": limpiar_emojis(fila["nombre_insumo"]),
+            "CANT. LOTE": int(fila["stock_disponible"]),
+            'CPD': f"{float(fila['cpd']):.2f}",
+            "DÍAS DE VIDA": int(fila["dias_para_vencer"]),
+            "DÍAS DE INVENTARIO": int(fila["dias_duracion_stock"]),
+            "CANT. RIESGO": int(fila["cantidad_riesgo"]),
+            "DIAGNÓSTICO LOGÍSTICO": limpiar_emojis(fila["alerta_vencimiento"])
+        })
+
+    df_final = pd.DataFrame(datos_matriz)
+
     wb = Workbook()
     ws = wb.active
-    ws.title = "Análisis de Vencimientos"
+    ws.title = "Análisis Caducidad"
     
-    fila_inicio = aplicar_membrete_excel(ws, "G", "CONTROL PREVENTIVO DE CADUCIDADES Y GESTIÓN DE MERMAS", usuario_emisor)
-    
-    # ---- BLOQUE DE FILTROS APLICADOS ----
-    ws.cell(row=fila_inicio, column=1, value="Filtros Aplicados:").font = FUENTE_SUBTITULO
-    fila_inicio += 1
-    
-    filtros_texto = " | ".join([f"{k}: {str(v).upper()}" for k, v in filtros_aplicados.items()]) if filtros_aplicados else "NINGUNO"
-    ws.cell(row=fila_inicio, column=1, value=filtros_texto).font = Font(name="Arial", size=10, italic=True)
-    fila_inicio += 2
-    
-    cabeceras = ["LOTE", "MEDICAMENTO / INSUMO", "CANT. LOTE", "DÍAS VNC.", "COBERTURA", "CANT. RIESGO", "DIAGNÓSTICO LOGÍSTICO"]
-    for col_idx, texto in enumerate(cabeceras, start=1):
-        celda = ws.cell(row=fila_inicio, column=col_idx, value=texto)
-        celda.font = FUENTE_CABECERA_TABLA
-        celda.fill = FILL_AZUL_MILITAR
-        celda.alignment = ALINEAR_CENTRO
-        celda.border = Border(bottom=Side(style="medium", color="000000"))
-        
-    fila_actual = fila_inicio + 1
-    
-    for _, fila in df_filtrado.iterrows():
-        ws.cell(row=fila_actual, column=1, value=str(fila["codigo_lote"]).upper()).alignment = ALINEAR_CENTRO
-        
-        insumo_limpio = str(fila["nombre_insumo"]).replace("✔", "").strip().upper()
-        ws.cell(row=fila_actual, column=2, value=insumo_limpio).alignment = ALINEAR_IZQ
-        
-        ws.cell(row=fila_actual, column=3, value=int(fila["stock_disponible"])).alignment = ALINEAR_DER
-        ws.cell(row=fila_actual, column=4, value=int(fila["dias_para_vencer"])).alignment = ALINEAR_DER
-        
-        cob = fila.get("dias_duracion_stock", fila.get("dias_cobertura", 9999))
-        val_cob = "INF" if pd.isna(cob) or cob >= 9999 or cob == float('inf') else int(cob)
-        ws.cell(row=fila_actual, column=5, value=val_cob).alignment = ALINEAR_DER
-        
-        ws.cell(row=fila_actual, column=6, value=int(fila["cantidad_riesgo"])).alignment = ALINEAR_DER
-        
-        # Mapeo unificado y seguro de la alerta analítica del backend
-        diag_val = fila.get("alerta_vencimiento", fila.get("diagnostico_logistico", "SIN DIAGNÓSTICO"))
-        diag_limpio = str(diag_val).replace("✔", "").strip().upper()
-        
-        celda_diag = ws.cell(row=fila_actual, column=7, value=diag_limpio)
-        celda_diag.alignment = ALINEAR_IZQ
-        celda_diag.font = Font(name="Arial", size=10, bold=True)
-        
-        if int(fila["cantidad_riesgo"]) > 0:
-            celda_diag.font = Font(name="Arial", size=10, bold=True, color="9C0006")
-            
-        for col_idx in range(1, 8):
-            ws.cell(row=fila_actual, column=col_idx).border = Border(
-                bottom=Side(style="thin", color="CCCCCC"),
-                left=Side(style="thin", color="CCCCCC"),
-                right=Side(style="thin", color="CCCCCC")
-            )
-        fila_actual += 1
-        
-    autoajustar_columnas_excel(ws, 7, fila_inicio)
-    
-    buffer = io.BytesIO()
-    wb.save(buffer)
-    return buffer.getvalue()
+    fila_tabla = aplicar_membrete_excel(
+        ws, 
+        ultima_letra_col="H", 
+        titulo_reporte=f"Control Preventivo de Mermas (Filtro: {filtros})", 
+        usuario_emisor=limpiar_emojis(usuario_emisor)
+    )
+
+    # Cabeceras
+    for col_num, column_title in enumerate(df_final.columns, 1):
+        cell = ws.cell(row=fila_tabla, column=col_num, value=column_title)
+        cell.font = FUENTE_CABECERA_TABLA
+        cell.fill = FILL_AZUL_MILITAR
+        cell.alignment = ALINEAR_CENTRO
+
+    # Datos
+    for row_num, row_data in enumerate(dataframe_to_rows(df_final, index=False, header=False), fila_tabla + 1):
+        for col_num, val in enumerate(row_data, 1):
+            cell = ws.cell(row=row_num, column=col_num, value=val)
+            # El nombre del medicamento (Col 2) e indicación (Col 7) van alineados a la izquierda
+            cell.alignment = ALINEAR_IZQ if col_num in [2, 7] else ALINEAR_CENTRO
+
+    autoajustar_columnas_excel(ws, num_columnas=7, fila_inicio_tabla=fila_tabla)
+
+    excel_buffer = io.BytesIO()
+    wb.save(excel_buffer)
+    excel_buffer.seek(0)
+    return excel_buffer.getvalue()
+
+
+def generar_reporte_caducidad_pdf(df_caducidad: pd.DataFrame, filtros: str, usuario_emisor: str) -> bytes:
+    """Genera el reporte de prevención de caducidades por lote en formato PDF.
+    Representación tabular vertical restringida a un ancho útil exacto de 195 mm. 
+    Aplica saltos de página y redibujado de cabeceras de manera automatizada y limpia.
+
+    Parametros:
+        df_caducidad: DataFrame de control de lotes (mismas columnas que la versión Excel).
+        filtros: Parámetros de búsqueda para el membrete superior.
+        usuario_emisor: Nombre del emisor para firma y auditoría.
+
+    Returns:
+        bytes: Flujo binario del archivo PDF, o b"" si el DataFrame está vacío.
+    """
+    if df_caducidad.empty:
+        return b""
+
+    pdf = PDFBaseSIALMED(orientation='P', unit='mm', format='letter')
+    pdf.alias_nb_pages()
+    pdf.set_auto_page_break(True, 35)
+
+    titulo = "Análisis de Ciclo de Vida e Índice de Mermas por Lote"
+
+    # Distribución física de columnas (Suma exacta = 195 mm útiles)
+    anchos = [22, 48, 18, 16, 20, 20, 22, 31]
+    titulos = ['CÓD. LOTE', 'MEDICAMENTO', 'CANT. LOTE', 'CPD', 'DÍAS VIDA', 'DÍAS INVENT', 'CANT. RIESGO', 'DIAGNÓSTICO']
+    alineaciones = ['C', 'L', 'C', 'C', 'C', 'C', 'C', 'L']
+
+    # Registro en la clase base para manejo controlado de salto de página
+    pdf.registrar_datos_tabla(titulo, usuario_emisor, filtros, anchos, titulos, alineaciones)
+
+    pdf.add_page()
+    pdf.escribir_subcabecera_pdf(titulo, usuario_emisor, filtros)
+    pdf._escribir_cabecera_tabla(tamano_fuente=8.0)
+
+    for _, fila in df_caducidad.iterrows():
+        cod_lote = limpiar_emojis(fila["codigo_lote"])
+        nombre_insumo = limpiar_emojis(fila["nombre_insumo"])
+        cant_lote = f"{int(fila['stock_disponible'])} unds."
+        cpd = f"{float(fila['cpd']):.2f} u/d"
+        dias_vida = f"{int(fila['dias_para_vencer'])} días."
+        cobertura = f"{int(fila['dias_duracion_stock'])} días." if int(fila['dias_duracion_stock']) >= 0 else "N/A"
+        cant_riesgo = f"{int(fila['cantidad_riesgo'])} unds."
+        diagnostico = limpiar_emojis(fila["alerta_vencimiento"])
+
+        fila_datos = [cod_lote, nombre_insumo, cant_lote, cpd, dias_vida, cobertura, cant_riesgo, diagnostico]
+
+        # Imprime de forma segura previniendo la dispersión masiva de celdas
+        pdf.imprimir_fila_adaptativa(fila_datos, tamano_fuente=7.5)
+
+    return bytes(pdf.output(dest='S'))
+
 

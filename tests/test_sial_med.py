@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta
 import pytest
 from sqlmodel import Session
-from models import Insumos, Lotes, Entradas, Usuarios, Rol  # Asegúrate de verificar cómo se llama el rol en models.py
+from bd.models import Insumos, Lotes, Entradas, Usuarios, Rol  # Asegúrate de verificar cómo se llama el rol en models.py
 from CRUDs.crud_salidas import registrar_despacho_combinado_fefo # 
 import hashlib
 from CRUDs.crud_usuarios import autenticar_usuario
@@ -12,7 +12,7 @@ def test_1_ordenamiento_fefo_estricto(session: Session):
     session.add(insumo)
     session.commit()
 
-    # 📌 CORRECCIÓN: Se añade 'ubicacion_fisica' obligatoria para cumplir con la restricción de SQLite
+    # Se añade 'ubicacion_fisica' obligatoria para cumplir con la restricción de SQLite
     lote_lejano = Lotes(
         id_insumo=insumo.id_insumo, 
         codigo_lote="LOT-LEJANO", 

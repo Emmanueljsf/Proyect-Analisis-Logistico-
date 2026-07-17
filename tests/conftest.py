@@ -1,6 +1,6 @@
 import pytest
 from sqlmodel import SQLModel, Session, create_engine
-from models import engine as modelo_engine  # Importamos tu configuración base
+from bd.models import engine as modelo_engine  # Importamos tu configuración base
 
 # Creamos un engine dedicado exclusivamente a las pruebas en memoria
 @pytest.fixture(scope="session")

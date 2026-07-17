@@ -1,5 +1,5 @@
 import streamlit as st
-from models import create_db_and_tables
+from bd.models import create_db_and_tables
 from insumos1 import Insumos
 from lotes import Vista_Control_Lotes
 from entradas import Vista_Entradas
@@ -31,6 +31,21 @@ def cargar_css(archivo_css):
     except FileNotFoundError:
         st.error(f"No se encontró el archivo de estilos: {archivo_css}")
 cargar_css("styles.css")
+
+# Esto escala toda la app un 80% si detectas que es móvil (o simplemente para probar)
+# Esta inyección de CSS solo afectará si la pantalla es menor a 600px
+st.markdown("""
+    <style>
+        @media (max-width: 600px) {
+            :root {
+                --base-font-size: 0.7rem;
+            }
+            html, body, [class*="css"] {
+                font-size: var(--base-font-size) !important;
+            }
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # ==============================================================================
 # 2. PERSISTENCIA DE SESIÓN LOGÍSTICA (EVITA CIERRES AL RECARGAR)
@@ -108,11 +123,11 @@ else:
         
         # Separamos los módulos "Catálogo", "Lotes", "Entradas", Salidas y Analisis logistico
         opciones_menu = [
+            '📊 Análisis Logistico',
             "📦 Catálogo Insumos", 
             "🔢 Lotes en Existencia", # Módulo enfocado en ver el stock y vencimientos
             "📥 Registrar Entradas" ,   # Módulo enfocado en los formularios de recepción
-            '📤 Salidas',
-            '📊 Análisis Logistico'
+            '📤 Salidas'
         ]
         
         if str(st.session_state["user_rol"]).startswith("Admin"):

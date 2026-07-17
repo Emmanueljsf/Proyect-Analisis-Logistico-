@@ -24,6 +24,5 @@ session_cache.json
 
 # archivos innecesarios o de prueba
 init_db.py
-generar_data_prueba.py
 reportes_prueba.py
 prueba_salidas.py

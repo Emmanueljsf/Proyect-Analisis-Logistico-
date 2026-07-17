@@ -3,8 +3,8 @@ from datetime import datetime, date
 import pandas as pd
 import math
 import CRUDs.crud_insumos as crud_insumos
-import CRUDs.crud_lotes_entradas as crud_le
-import CRUDs.crud_salidas as crud_salidas
+import CRUDs.crud_entradas as crud_le
+import CRUDs.crud_lotes as crud_l
 # Librerías estéticas y estructurales para Excel Nativo
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Side, Border
@@ -26,6 +26,7 @@ FILL_AZUL_MILITAR = PatternFill(start_color="1F497D", end_color="1F497D", fill_t
 
 ALINEAR_CENTRO = Alignment(horizontal="center", vertical="center")
 ALINEAR_IZQ = Alignment(horizontal="left", vertical="center")
+ALINEAR_DER = Alignment(horizontal="right", vertical="center")  # <--- ESTA ERA LA QUE FALTABA
 
 
 def aplicar_membrete_excel(ws, ultima_letra_col: str, titulo_reporte: str, usuario_emisor: str) -> int:
@@ -192,6 +193,11 @@ class PDFBaseSIALMED(FPDF):
             es_ultimo = 1 if i == len(datos) - 1 else 0
             self.cell(self.anchos_columnas[i], alto_fila, str(txt), 1, es_ultimo, self.alineaciones_columnas[i])
 
+    def chapter_title(self, title):
+        self.set_font('Arial', 'B', 14)
+        self.set_fill_color(200, 220, 255)
+        self.cell(0, 10, title, ln=True, fill=True)
+        self.ln(5)
 
 # ==============================================================================
 # SECCIÓN 1: MÓDULO DE INSUMOS (RF17 & RF18)
@@ -298,7 +304,7 @@ def generar_reporte_insumos_pdf(txt_buscar: str, opt_estado: str, usuario_emisor
 def generar_reporte_lotes_excel(txt_universal: str, txt_rango_stock: str, rango_vencimiento: list, opt_estado: str, usuario_emisor: str) -> bytes:
     """Genera el reporte de stock en Excel incluyendo estado y motivo si aplica."""
     
-    tuplas_lotes = crud_le.obtener_lotes_filtrados(
+    tuplas_lotes = crud_l.obtener_lotes_filtrados(
         txt_universal=txt_universal,
         txt_rango_stock=txt_rango_stock,
         rango_vencimiento=rango_vencimiento,
@@ -365,7 +371,7 @@ def generar_reporte_lotes_excel(txt_universal: str, txt_rango_stock: str, rango_
 def generar_reporte_lotes_pdf(txt_universal: str, txt_rango_stock: str, rango_vencimiento: list, opt_estado: str, usuario_emisor: str) -> bytes:
     """Genera el reporte de lotes con celdas adaptativas multilínea usando la clase base unificada."""
     
-    tuplas_lotes = crud_le.obtener_lotes_filtrados(txt_universal, txt_rango_stock, rango_vencimiento, opt_estado)
+    tuplas_lotes = crud_l.obtener_lotes_filtrados(txt_universal, txt_rango_stock, rango_vencimiento, opt_estado)
     if not tuplas_lotes: return b""
 
     pdf = PDFBaseSIALMED(orientation='P', unit='mm', format='letter')
@@ -381,7 +387,7 @@ def generar_reporte_lotes_pdf(txt_universal: str, txt_rango_stock: str, rango_ve
     elif opt_estado == "INACTIVOS":
         anchos, titulos, align = [22, 53, 18, 22, 17, 28, 35], ['CÓDIGO LOTE', 'INSUMO MÉDICO', 'VED', 'F. VENC.', 'STOCK', 'UBICACIÓN', 'MOTIVO DE BAJA'], ['C', 'L', 'C', 'C', 'C', 'L', 'L']
     else:
-        anchos, titulos, align = [18, 44, 18, 22, 15, 26, 18, 34], ['CÓDIGO LOTE', 'INSUMO MÉDICO', 'VED', 'F. VENC.', 'STOCK', 'UBICACIÓN', 'ESTADO', 'MOTIVO DE BAJA'], ['C', 'L', 'C', 'C', 'C', 'L', 'C', 'L']
+        anchos, titulos, align = [20, 42, 18, 22, 15, 26, 18, 34], ['CÓDIGO LOTE', 'INSUMO MÉDICO', 'VED', 'F. VENC.', 'STOCK', 'UBICACIÓN', 'ESTADO', 'MOTIVO DE BAJA'], ['C', 'L', 'C', 'C', 'C', 'L', 'C', 'L']
 
     # 1. Registramos la configuración de la tabla
     pdf.registrar_datos_tabla(titulo, usuario_emisor, filtros, anchos, titulos, align)
@@ -398,11 +404,11 @@ def generar_reporte_lotes_pdf(txt_universal: str, txt_rango_stock: str, rango_ve
         motivo_txt = lote_obj.motivo_desactivacion if lote_obj.motivo_desactivacion else ""
 
         if opt_estado == "ACTIVOS":
-            fila = [lote_obj.codigo_lote, insumo_obj.nombre, ved_txt, f_venc, f"{int(lote_obj.stock_disponible)} u.", lote_obj.ubicacion_fisica]
+            fila = [lote_obj.codigo_lote, insumo_obj.nombre, ved_txt, f_venc, f"{int(lote_obj.stock_disponible)} unds.", lote_obj.ubicacion_fisica]
         elif opt_estado == "INACTIVOS":
-            fila = [lote_obj.codigo_lote, insumo_obj.nombre, ved_txt, f_venc, f"{int(lote_obj.stock_disponible)} u.", lote_obj.ubicacion_fisica, motivo_txt]
+            fila = [lote_obj.codigo_lote, insumo_obj.nombre, ved_txt, f_venc, f"{int(lote_obj.stock_disponible)} unds.", lote_obj.ubicacion_fisica, motivo_txt]
         else:
-            fila = [lote_obj.codigo_lote, insumo_obj.nombre, ved_txt, f_venc, f"{int(lote_obj.stock_disponible)} u.", lote_obj.ubicacion_fisica, estado_txt, motivo_txt]
+            fila = [lote_obj.codigo_lote, insumo_obj.nombre, ved_txt, f_venc, f"{int(lote_obj.stock_disponible)} unds.", lote_obj.ubicacion_fisica, estado_txt, motivo_txt]
 
         # 2. Invocamos la fila adaptativa con marcos completos uniformes
         pdf.imprimir_fila_adaptativa(fila, tamano_fuente=7.5)
@@ -410,38 +416,37 @@ def generar_reporte_lotes_pdf(txt_universal: str, txt_rango_stock: str, rango_ve
     return bytes(pdf.output(dest='S'))
 
 
-def generar_reporte_entradas_excel(txt_universal: str, txt_rango_cantidad: str, rango_fechas: list, opt_estado: str, usuario_emisor: str) -> bytes:
+def generar_reporte_entradas_excel(txt_universal: str, rango_fechas: list, opt_estado: str, usuario_emisor: str) -> bytes:
     """Genera el reporte de stock en Excel incluyendo estado y motivo si aplica."""
     
-    tuplas_entradas, total_registros_bd = crud_le.obtener_entradas_filtradas_paginadas(
+    entradas, total_registros_bd = crud_le.obtener_entradas_filtradas_paginadas(
             txt_universal=txt_universal,
-            txt_rango_cantidad=txt_rango_cantidad,
             rango_fechas=rango_fechas,
             opt_estado=opt_estado,
             #pagina_actual=st.session_state["pagina_entradas"],
             #registros_por_pagina=REGISTROS_POR_PAGINA
         )
-    if not tuplas_entradas: return b""
+    if not entradas: return b""
     
     filas_raw = []
-    for entrada_obj, lote_obj, insumo_obj in tuplas_entradas:
-        ved = insumo_obj.clasificacion_ved.value if hasattr(insumo_obj.clasificacion_ved, "value") else insumo_obj.clasificacion_ved
+    for entrada in entradas:
+        ved = entrada.lote.insumo.clasificacion_ved.value if hasattr(entrada.lote.insumo.clasificacion_ved, "value") else entrada.lote.insumo.clasificacion_ved
         ved_txt = 'VITAL' if ved=='V' else 'ESENCIAL' if ved=='E' else 'DESEABLE'
-        nombre_completo = f"{entrada_obj.usuario.nombres.split()[0]} {entrada_obj.usuario.apellidos.split()[0]}"
-        f_pedido = entrada_obj.fecha_pedido.strftime("%d/%m/%Y")
-        f_recep = entrada_obj.fecha_recepcion.strftime("%d/%m/%Y")
+        nombre_completo = f"{entrada.usuario.nombres.split()[0]} {entrada.usuario.apellidos.split()[0]}"
+        f_pedido = entrada.fecha_pedido.strftime("%d/%m/%Y")
+        f_recep = entrada.fecha_recepcion.strftime("%d/%m/%Y")
         
         filas_raw.append({
-            "ID": entrada_obj.id_entrada,
-            "INSUMO MÉDICO": insumo_obj.nombre,
-            "CÓDIGO LOTE": lote_obj.codigo_lote,
+            "ID": entrada.id_entrada,
+            "INSUMO MÉDICO": entrada.lote.insumo.nombre,
+            "CÓDIGO LOTE": entrada.lote.codigo_lote,
             "VED": ved_txt,
-            "CANTIDAD": entrada_obj.cantidad,
+            "CANTIDAD": entrada.cantidad,
             "FECHA PEDIDO": f_pedido,
             "FECHA RECEPCIÓN": f_recep,
-            'TIEMPO DE ENTREGA': f'{entrada_obj.tiempo_entrega_dias} días', 
+            'TIEMPO DE ENTREGA': f'{entrada.tiempo_entrega_dias} días', 
             "RESPONSABLE": nombre_completo,
-            "ESTADO": 'VALIDO' if entrada_obj.estado=='VALIDO' else 'ANULADO'
+            "ESTADO": 'VALIDO' if entrada.estado=='VALIDO' else 'ANULADO'
         })
 
         # Construcción exacta para que si está vacío no pinte registros fantasmas
@@ -484,23 +489,22 @@ def generar_reporte_entradas_excel(txt_universal: str, txt_rango_cantidad: str, 
     excel_buffer.seek(0)
     return excel_buffer.getvalue()
 
-def generar_reporte_entradas_pdf(txt_universal: str, txt_rango_cantidad: str, rango_fechas: list, opt_estado: str, usuario_emisor: str) -> bytes:
+def generar_reporte_entradas_pdf(txt_universal: str, rango_fechas: list, opt_estado: str, usuario_emisor: str) -> bytes:
     """
     Genera el acta e historial de entradas en formato VERTICAL (Portrait).
     Elimina la columna VED e integra la inicial (V/E/D) en el nombre del insumo 
     para prevenir desbordes de página en FPDF.
     """
     # 1. Consulta al backend
-    tuplas_entradas, _ = crud_le.obtener_entradas_filtradas_paginadas(
+    entradas, _ = crud_le.obtener_entradas_filtradas_paginadas(
         txt_universal=txt_universal,
-        txt_rango_cantidad=txt_rango_cantidad,
         rango_fechas=rango_fechas,
         opt_estado=opt_estado,
         pagina_actual=1,
         registros_por_pagina=50000
     )
     
-    if not tuplas_entradas: 
+    if not entradas: 
         return b""
 
     # 2. INICIALIZACIÓN EN VERTICAL ('P' - Portrait)
@@ -532,31 +536,31 @@ def generar_reporte_entradas_pdf(txt_universal: str, txt_rango_cantidad: str, ra
     pdf._escribir_cabecera_tabla(tamano_fuente=7.5) 
 
     # 4. Iteración y formateo de filas
-    for entrada_obj, lote_obj, insumo_obj in tuplas_entradas:
+    for entrada in entradas:
         # Extraer la inicial de la clasificación VED de forma segura
-        ved = insumo_obj.clasificacion_ved.value if hasattr(insumo_obj.clasificacion_ved, "value") else insumo_obj.clasificacion_ved
+        ved = entrada.lote.insumo.clasificacion_ved.value if hasattr(entrada.lote.insumo.clasificacion_ved, "value") else entrada.lote.insumo.clasificacion_ved
         inicial_ved = str(ved)[0].upper() if ved else "D" # Por defecto Deseable si viene vacío
         
         # Inyectar la inicial al principio del nombre: "(V) Adrenalina 1mg/ml"
-        nombre_insumo_compacto = f"{insumo_obj.nombre} ({inicial_ved})"
+        nombre_insumo_compacto = f"{entrada.lote.insumo.nombre} ({inicial_ved})"
         
-        f_ped = entrada_obj.fecha_pedido.strftime("%d/%m/%Y") if entrada_obj.fecha_pedido else "N/A"
-        f_rec = entrada_obj.fecha_recepcion.strftime("%d/%m/%Y") if entrada_obj.fecha_recepcion else "N/A"
+        f_ped = entrada.fecha_pedido.strftime("%d/%m/%Y") if entrada.fecha_pedido else "N/A"
+        f_rec = entrada.fecha_recepcion.strftime("%d/%m/%Y") if entrada.fecha_recepcion else "N/A"
         
         # Nombre de auditoría corto para no romper la celda en vertical
-        nombre_completo = f"{entrada_obj.usuario.nombres.split()[0]} {entrada_obj.usuario.apellidos.split()[0]}"
+        nombre_completo = f"{entrada.usuario.nombres.split()[0]} {entrada.usuario.apellidos.split()[0]}"
         
         # Limpieza estricta del string del Enum de estado
-        estado_crudo = str(entrada_obj.estado)
+        estado_crudo = str(entrada.estado)
         estado_limpio = estado_crudo.replace("Estado.", "").strip()
         estado_final = "VALIDO" if "VALIDO" in estado_limpio.upper() else "ANULADO"
 
         # Armamos el array con las 9 columnas resultantes
         fila_datos = [
-            entrada_obj.id_entrada,
+            entrada.id_entrada,
             nombre_insumo_compacto,
-            lote_obj.codigo_lote,
-            f"{int(entrada_obj.cantidad)} u.",
+            entrada.lote.codigo_lote,
+            f"{int(entrada.cantidad)} unds.",
             f_ped,
             f_rec,
             nombre_completo,

@@ -182,20 +182,23 @@ div[data-testid="stDataEditor"] table td {
     text-align: center !important;
 }
 
-/* Colores de Alerta para las celdas de la columna VED */
-.ved-v {
-    background-color: #ffcccc !important;
-    color: #cc0000 !important;
-    font-weight: bold !important;
+
+
+
+/* Forzar que el bloque de columnas no se convierta en columna vertical */
+div[data-testid="column"] {
+    flex: 1 1 0% !important; /* Mantiene el ancho flexible */
+    min-width: 50px !important; /* Permite que las celdas se encojan al mínimo */
 }
 
-.ved-e {
-    background-color: #fff3cd !important;
-    color: #856404 !important;
-    font-weight: bold !important;
-}
-
-.ved-d {
-    background-color: #d4edda !important;
-    color: #155724 !important;
+/* Opcional: reducir el tamaño de letra en móviles específicamente */
+@media (max-width: 600px) {
+    .tabla-celda, .tabla-celda-bold, .tabla-cabecera {
+        font-size: 0.65rem !important; /* Texto muy pequeño para que quepa */
+        padding: 2px !important;
+    }
+    /* Eliminar márgenes excesivos que empujan los elementos hacia abajo */
+    [data-testid="stHorizontalBlock"] {
+        gap: 2px !important;
+    }
 }

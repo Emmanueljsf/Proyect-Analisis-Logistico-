@@ -1,5 +1,5 @@
 from sqlmodel import Session, select, and_, or_, func
-from models import Salidas, DetallesSalida, Lotes, Insumos, Estado, engine
+from bd.models import Salidas, DetallesSalida, Lotes, Insumos, Usuarios, Estado, engine
 from datetime import datetime, date, time
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload, joinedload
@@ -205,42 +205,71 @@ def obtener_historico_salidas_completo(): # NO ESTÁ EN USO
         return result.unique().all()
     
 
+from sqlalchemy import or_, and_, func
+from sqlalchemy.orm import joinedload
+
 def obtener_salidas_filtradas_paginadas(
-    txt_universal: str = "",         # Filtra por Paciente/Destino u Orden
-    rango_fechas: list = None,       # Filtra sobre Salidas.fecha
-    opt_estado: str = "VALIDO",      # VALIDO / ANULADO / TODOS
+    txt_universal: str = "",
+    rango_fechas: list = None,
+    opt_estado: str = "VALIDO",
     pagina_actual: int = 1,
     registros_por_pagina: int = 50
 ):
     """
-    Busca y pagina las cabeceras de las Actas de Salida usando las variables
-    exactas del modelo Salidas (fecha, paciente_destino, orden_salida).
+    Filtra y pagina las cabeceras de las Actas de Salida, permitiendo búsquedas en 
+    datos del acta, usuario responsable, insumos o clasificación VED.
+    Utiliza joinedload para cargar el usuario y los detalles (con sus respectivos lotes e insumos), 
+    asegurando que los datos estén disponibles tras cerrar la sesión.
+
+    Parámetros:
+    - txt_universal (str): Texto para buscar en paciente, orden, razón, nombre de usuario, 
+                           nombre del insumo o clasificación (V, E, D).
+    - rango_fechas (list): [date_inicio, date_fin] para filtrar por fecha de la salida.
+    - opt_estado (str): Estado del acta ('VALIDO', 'ANULADO' o 'TODOS').
+    - pagina_actual (int): Número de página (base 1).
+    - registros_por_pagina (int): Cantidad de resultados por página.
+
+    Retorna:
+    - tuple: (lista_salidas, total_coincidencias) 
+        - lista_salidas: Lista de objetos Salidas con sus relaciones cargadas.
+        - total_coincidencias: Entero con el conteo total sin paginar.
     """
     with Session(engine) as session:
         try:
-            statement = select(Salidas)
+            # Precargamos Usuario y la cadena completa: Salida -> Detalles -> Lote -> Insumo
+            statement = select(Salidas).options(
+                joinedload(Salidas.usuario),
+                joinedload(Salidas.detalles).joinedload(DetallesSalida.lote).joinedload(Lotes.insumo)
+            ).join(Usuarios, Salidas.id_usuario == Usuarios.id_usuario)
+
+            # Join con detalles para permitir filtrar por Insumos
+            statement = statement.join(DetallesSalida, Salidas.id_salida == DetallesSalida.id_salida) \
+                                 .join(Lotes, DetallesSalida.id_lote == Lotes.id_lote) \
+                                 .join(Insumos, Lotes.id_insumo == Insumos.id_insumo)
+
             condiciones = []
 
-            # FILTRO 1: ESTADO DEL ACTA (Usa el Enum o String)
             if opt_estado != "TODOS":
-                # Convertimos a string o dejamos el valor si se pasa directo
                 condiciones.append(Salidas.estado == opt_estado)
 
-            # FILTRO 2: BUSCADOR UNIVERSAL (Paciente/Destino u Orden de Salida)
             if txt_universal:
-                txt_universal = txt_universal.strip()
-                condiciones.append(
-                    or_(
-                        Salidas.paciente_destino.like(f"%{txt_universal}%"),
-                        Salidas.orden_salida.like(f"%{txt_universal}%"),
-                        Salidas.razon_salida.like(f"%{txt_universal}%"),
-                    )
-                )
-
-            # FILTRO 3: RANGO DE FECHAS (Usa 'fecha')
-            if rango_fechas and len(rango_fechas) == 2:
-                # Convertimos a datetime cubriendo el inicio y fin del día si es necesario
+                busqueda = txt_universal.strip().upper()
+                letra_ved = {"VITAL": "V", "ESENCIAL": "E", "DESEABLE": "D"}.get(busqueda)
                 
+                bloque_or = [
+                    Salidas.paciente_destino.ilike(f"%{busqueda}%"),
+                    Salidas.orden_salida.ilike(f"%{busqueda}%"),
+                    Salidas.razon_salida.ilike(f"%{busqueda}%"),
+                    Usuarios.nombres.ilike(f"%{busqueda}%"),
+                    Usuarios.apellidos.ilike(f"%{busqueda}%"),
+                    Insumos.nombre.ilike(f"%{busqueda}%")
+                ]
+                if letra_ved:
+                    bloque_or.append(Insumos.clasificacion_ved == letra_ved)
+                
+                condiciones.append(or_(*bloque_or))
+
+            if rango_fechas and len(rango_fechas) == 2:
                 dt_inicio = datetime.combine(rango_fechas[0], time.min)
                 dt_fin = datetime.combine(rango_fechas[1], time.max)
                 condiciones.append(and_(Salidas.fecha >= dt_inicio, Salidas.fecha <= dt_fin))
@@ -248,22 +277,26 @@ def obtener_salidas_filtradas_paginadas(
             if condiciones:
                 statement = statement.where(*condiciones)
 
-            # CONTEO DE COINCIDENCIAS
-            stmt_count = select(func.count()).select_from(Salidas)
+            # CONTEO (Usamos distinct porque el join con detalles multiplica las filas)
+            stmt_count = select(func.count(func.distinct(Salidas.id_salida))).select_from(Salidas) \
+                         .join(Usuarios, Salidas.id_usuario == Usuarios.id_usuario) \
+                         .join(DetallesSalida, Salidas.id_salida == DetallesSalida.id_salida) \
+                         .join(Lotes, DetallesSalida.id_lote == Lotes.id_lote) \
+                         .join(Insumos, Lotes.id_insumo == Insumos.id_insumo)
+            
             if condiciones:
                 stmt_count = stmt_count.where(*condiciones)
             total_coincidencias = session.exec(stmt_count).one()
 
-            # PAGINACIÓN CON LIMIT Y OFFSET
+            # PAGINACIÓN
             offset_calculado = (pagina_actual - 1) * registros_por_pagina
-            statement = statement.order_by(Salidas.id_salida.desc()).limit(registros_por_pagina).offset(offset_calculado)
-            statement = statement.options(selectinload(Salidas.usuario))
+            statement = statement.distinct().order_by(Salidas.fecha.desc()).limit(registros_por_pagina).offset(offset_calculado)
             
-            resultados = session.exec(statement).all()
+            resultados = session.exec(statement).unique().all()
             return resultados, total_coincidencias
 
         except Exception as e:
-            print(f"🛑 Error crítico en obtener_salidas_cabecera_filtradas_paginadas_backend: {e}")
+            print(f"Error crítico en obtener_salidas_filtradas_paginadas: {e}")
             return [], 0
 
 
@@ -279,6 +312,7 @@ def obtener_detalles_insumos_por_acta(id_salida: int):
                     DetallesSalida.id_detalle_salida,
                     DetallesSalida.id_salida,
                     Insumos.nombre,
+                    Insumos.clasificacion_ved,
                     Lotes.codigo_lote,
                     DetallesSalida.cantidad
                 )
@@ -291,6 +325,7 @@ def obtener_detalles_insumos_por_acta(id_salida: int):
             resultados = session.execute(statement).all()
             
             print(f"🔍 BUSCANDO ID {id_salida} -> Filas encontradas en BD: {len(resultados)}")
+            print(resultados)
             return resultados # Retorna una lista de filas con datos planos
             
         except Exception as e:
