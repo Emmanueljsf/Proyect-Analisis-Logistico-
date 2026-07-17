@@ -1,7 +1,7 @@
 import streamlit as st
 import CRUDs.crud_usuarios as crud_u  # Importamos la función de arriba
 import time # Librería nativa para controlar el tiempo
-from generar_data_prueba import Generar_datos_prueba
+from generar_data_prueba import poblar_sistema_con_data_realista
 
 def Vista_Login(credenciales_primer_uso=None):
     """
@@ -73,7 +73,7 @@ def Vista_Login(credenciales_primer_uso=None):
                     # 2. Congelamos la ejecución por 1.5 segundos para que dé tiempo de leer
                     time.sleep(1.5)
                     
-                    Generar_datos_prueba()
+                    poblar_sistema_con_data_realista()
                     # Forzamos la recarga de Streamlit para que dibuje el menú principal del sistema
                     st.rerun()
                     
