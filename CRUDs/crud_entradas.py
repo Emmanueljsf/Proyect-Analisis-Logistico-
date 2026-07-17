@@ -1,5 +1,5 @@
 from sqlmodel import Session, select, and_, or_, func  # Operaciones de consulta
-from models import Entradas, Lotes, Insumos, Usuarios, DetallesSalida, Estado, engine  # Modelos de datos del SIAL-MED
+from bd.models import Entradas, Lotes, Insumos, Usuarios, DetallesSalida, Estado, engine  # Modelos de datos del SIAL-MED
 from datetime import date, datetime, time  # Manejo de fechas para vencimientos
 from sqlalchemy.orm import joinedload, make_transient, selectinload
 from sqlalchemy.exc import IntegrityError  # 💡 Importación clave para detectar duplicados
@@ -76,62 +76,66 @@ def obtener_historial_entradas():
     
 
 def obtener_entradas_filtradas_paginadas(
-    txt_universal: str = "",       # Barra 1: Insumo, VED o Código de lote
-    txt_rango_cantidad: str = "",   # Barra 2: Unidades ingresadas (Min-Max)
-    rango_fechas: list = None,     # Barra 3: Rango de fecha_recepcion [Inicio, Fin]
-    opt_estado: str = "VALIDO",    # Barra 4: VALIDO / ANULADO / TODOS
+    txt_universal: str = "",
+    rango_fechas: list = None,
+    opt_estado: str = "VALIDO",
     pagina_actual: int = 1,
     registros_por_pagina: int = 50
 ):
     """
-    Controlador del Backend para Entradas de SIAL-MED.
-    Filtra y pagina directamente en SQLite usando las variables exactas del modelo.
+    Filtra, pagina y recupera registros de entradas de insumos con sus lotes y usuarios asociados.
+    Esta función realiza un join entre Entradas, Lotes, Insumos y Usuarios para permitir búsquedas 
+    cruzadas. Aplica filtros de estado, rangos temporales y una búsqueda universal de texto que 
+    incluye el nombre del usuario responsable.
+
+    Parámetros:
+    - txt_universal (str): Texto para buscar en nombres de insumos, códigos de lote o nombre/apellido de usuario.
+    - rango_fechas (list): Lista [date_inicio, date_fin] para filtrar por fecha de recepción.
+    - opt_estado (str): Filtro de estado ('VALIDO', 'ANULADO' o 'TODOS').
+    - pagina_actual (int): Número de página para la paginación (base 1).
+    - registros_por_pagina (int): Cantidad de registros a retornar.
+
+    Retorna:
+    - tuple: (lista_final, total_coincidencias) 
+        - lista_final: Lista de tuplas (Entradas, Lotes, Insumos, usuarios).
+        - total_coincidencias: Int con el número total de registros encontrados sin paginación.
     """
     with Session(engine) as session:
         try:
-            statement = select(Entradas, Lotes, Insumos).join(
-                Lotes, Entradas.id_lote == Lotes.id_lote
-            ).join(
+            # Seleccionamos solo Entradas y precargamos las relaciones
+            statement = select(Entradas).options(
+                joinedload(Entradas.usuario),
+                joinedload(Entradas.lote).joinedload(Lotes.insumo)
+            ).join(Lotes, Entradas.id_lote == Lotes.id_lote).join(
                 Insumos, Lotes.id_insumo == Insumos.id_insumo
+            ).join(
+                Usuarios, Entradas.id_usuario == Usuarios.id_usuario
             )
             
             condiciones = []
 
-            # 🎛️ FILTRO 1: ESTADO ADMINISTRATIVO REAL ("VALIDO" / "ANULADO")
+            # FILTRO 1: ESTADO
             if opt_estado != "TODOS":
                 condiciones.append(Entradas.estado == opt_estado)
 
-            # 🎛️ FILTRO 2: BARRA UNIVERSAL (Insumo, VED o Lote)
+            # FILTRO 2: BÚSQUEDA UNIVERSAL (incluye Usuario)
             if txt_universal:
                 busqueda = txt_universal.strip().upper()
                 letra_ved = {"VITAL": "V", "ESENCIAL": "E", "DESEABLE": "D"}.get(busqueda)
                 
                 bloque_or = [
-                    Insumos.nombre.like(f"%{txt_universal}%"),
-                    Lotes.codigo_lote.like(f"%{txt_universal}%")
+                    Insumos.nombre.ilike(f"%{txt_universal}%"),
+                    Lotes.codigo_lote.ilike(f"%{txt_universal}%"),
+                    Usuarios.nombres.ilike(f"%{txt_universal}%"),
+                    Usuarios.apellidos.ilike(f"%{txt_universal}%")
                 ]
                 if letra_ved:
                     bloque_or.append(Insumos.clasificacion_ved == letra_ved)
                 
                 condiciones.append(or_(*bloque_or))
 
-            # 🎛️ FILTRO 3: RANGO DE CANTIDADES
-            if txt_rango_cantidad:
-                try:
-                    if "-" in txt_rango_cantidad:
-                        partes = txt_rango_cantidad.split("-")
-                        val_min = int(partes[0].strip()) if partes[0].strip() else 0
-                        val_max = int(partes[1].strip()) if partes[1].strip() else 999999
-                    else:
-                        val_min = int(txt_rango_cantidad)
-                        val_max = 999999
-                    condiciones.append(and_(Entradas.cantidad >= val_min, Entradas.cantidad <= val_max))
-                except ValueError:
-                    pass
-
-            # FILTRO 4: RANGO DE FECHAS USANDO 'fecha_recepcion'
+            # FILTRO 3: RANGO DE FECHAS
             if rango_fechas and len(rango_fechas) == 2:
-                # Convertimos a datetime cubriendo el inicio y fin del día si es necesario
                 dt_inicio = datetime.combine(rango_fechas[0], time.min)
                 dt_fin = datetime.combine(rango_fechas[1], time.max)
                 condiciones.append(and_(Entradas.fecha_recepcion >= dt_inicio, Entradas.fecha_recepcion <= dt_fin))
@@ -139,31 +143,28 @@ def obtener_entradas_filtradas_paginadas(
             if condiciones:
                 statement = statement.where(*condiciones)
 
-            # CONTEO EFICIENTE EN EL BACKEND
+            # CONTEO EFICIENTE
             stmt_count = select(func.count()).select_from(Entradas).join(
                 Lotes, Entradas.id_lote == Lotes.id_lote
             ).join(
                 Insumos, Lotes.id_insumo == Insumos.id_insumo
+            ).join(
+                Usuarios, Entradas.id_usuario == Usuarios.id_usuario
             )
             if condiciones:
                 stmt_count = stmt_count.where(*condiciones)
             total_coincidencias = session.exec(stmt_count).one()
 
-            # PAGINACIÓN NATIVA SQL (LIMIT y OFFSET)
+            # PAGINACIÓN Y EJECUCIÓN
             offset_calculado = (pagina_actual - 1) * registros_por_pagina
-            statement = statement.limit(registros_por_pagina).offset(offset_calculado)
-            statement = statement.options(selectinload(Entradas.usuario))
+            statement = statement.order_by(Entradas.fecha_recepcion.desc()).limit(registros_por_pagina).offset(offset_calculado)
 
-            resultados = session.exec(statement).all()
+            lista_entradas = session.exec(statement).unique().all()
             
-            lista_final = []
-            for entrada_obj, lote_obj, insumo_obj in resultados:
-                lista_final.append((entrada_obj, lote_obj, insumo_obj))
-
-            return lista_final, total_coincidencias
+            return lista_entradas, total_coincidencias
 
         except Exception as e:
-            print(f"🛑 Error crítico en obtener_entradas_filtradas_paginadas_backend: {e}")
+            print(f"🛑 Error crítico en obtener_entradas_filtradas_paginadas: {e}")
             return [], 0
     
 
@@ -297,209 +298,7 @@ def actualizar_registros_entradas_masivo(cambios_dict: dict) -> bool:
             print(f"FALLA CRÍTICA EN BASE DE DATOS: {str(e)}")
 
 
-def obtener_lotes_filtrados(
-    txt_universal: str = "",       # Barra 1: Insumo, VED, Código de lote o Ubicación
-    txt_rango_stock: str = "",     # Barra 2: Existencias (Min-Max)
-    rango_vencimiento: list = None,# Barra 3: Fechas [Inicio, Fin]
-    opt_estado: str = "ACTIVOS"    # Barra 4: ACTIVOS / INACTIVOS / TODOS
-):
-    """
-    Controlador del Backend para SIAL-MED.
-    Procesa de manera nativa todos los filtros relacionales en la Base de Datos
-    y resuelve la matemática de stock dinámico sin saturar la memoria.
-    """
-    with Session(engine) as session:
-        try:
-            # 1. Uniones base (JOIN) para poder buscar datos del Insumo desde el Lote
-            statement = select(Lotes, Insumos).join(Insumos, Lotes.id_insumo == Insumos.id_insumo)
-            condiciones = []
 
-            # FILTRO 1: ESTADO DEL LOTE
-            if opt_estado == "ACTIVOS":
-                condiciones.append(Lotes.activo == True)
-            elif opt_estado == "INACTIVOS":
-                condiciones.append(Lotes.activo == False)
-
-            # FILTRO 2: BARRA UNIVERSAL (Insumo, VED, Código, Ubicación)
-            if txt_universal:
-                busqueda = txt_universal.strip().upper()
-                # Traducimos VED por si busca la palabra completa
-                letra_ved = {"VITAL": "V", "ESENCIAL": "E", "DESEABLE": "D"}.get(busqueda)
-                
-                bloque_or = [
-                    Insumos.nombre.like(f"%{txt_universal}%"),
-                    Lotes.codigo_lote.like(f"%{txt_universal}%"),
-                    Lotes.ubicacion_fisica.like(f"%{txt_universal}%"),
-                    Lotes.motivo_desactivacion.like(f"%{txt_universal}%")
-                ]
-                if letra_ved:
-                    bloque_or.append(Insumos.clasificacion_ved == letra_ved)
-                
-                condiciones.append(or_(*bloque_or))
-
-            # 🎛️ FILTRO 3: RANGO DE FECHAS DE VENCIMIENTO
-            if rango_vencimiento and len(rango_vencimiento) == 2:
-                condiciones.append(Lotes.fecha_vencimiento >= rango_vencimiento[0])
-                condiciones.append(Lotes.fecha_vencimiento <= rango_vencimiento[1])
-
-            # Aplicamos todos los filtros acumulados y precargamos las relaciones indispensables
-            statement = statement.where(*condiciones).options(
-                selectinload(Lotes.entrada),
-                selectinload(Lotes.detalles_salida).selectinload(DetallesSalida.salida)
-            )
-            
-            # Ejecutamos la consulta en SQLite
-            resultados = session.exec(statement).all()
-            
-            # Formateamos los resultados en tuplas (Lote, Insumo) compatibles con tu estructura
-            lista_estructurada = []
-            for item in resultados:
-                # SQLModel puede retornar tuplas (Lotes, Insumos) al hacer un join explícito
-                lote_obj = item[0]
-                insumo_obj = item[1]
-                
-                # 🎛️ FILTRO 4: FILTRADO DE STOCK EN BACKEND VÍA PYTHON (Evaluando la property)
-                if txt_rango_stock:
-                    try:
-                        if "-" in txt_rango_stock:
-                            partes = txt_rango_stock.split("-")
-                            val_min = int(partes[0].strip()) if partes[0].strip() else 0
-                            val_max = int(partes[1].strip()) if partes[1].strip() else 999999
-                        else:
-                            val_min = int(txt_rango_stock)
-                            val_max = 999999
-                        
-                        # Si el stock calculado no entra en el rango, lo ignoramos antes de enviarlo
-                        if not (val_min <= lote_obj.stock_disponible <= val_max):
-                            continue
-                    except ValueError:
-                        pass # Si meten basura en el stock, ignora el filtro numérico
-                
-                lista_estructurada.append((lote_obj, insumo_obj))
-
-            return lista_estructurada
-
-        except Exception as e:
-            print(f"🛑 Error crítico en obtener_lotes_filtrados_backend: {e}")
-            return []
-    
-
-def actualizar_registros_lotes_masivo(cambios_dict: dict):
-    """
-    Actualiza de forma masiva las propiedades físicas de múltiples lotes en una sola transacción.
-    Permite modificar atributos esenciales como la ubicación física o el código identificador
-    de varios lotes de manera simultánea en el archivo SQLite.
-
-    Parámetros: cambios_dict : dict
-        Un diccionario estructurado donde las llaves son los IDs de los lotes (int) 
-        y los valores son diccionarios con los campos que se van a modificar 
-        (ej. {2: {"ubicacion_fisica": "Estante B-4"}}).
-
-    Retorna: bool
-        Retorna True si todas las actualizaciones se consolidaron con éxito en la base de datos.
-        Ejecuta un rollback integral y retorna False si ocurre cualquier error de persistencia.
-    """
-    hoy = date.today()
-    
-    with Session(engine) as session:
-        try:
-            for id_lote_str, modificaciones in cambios_dict.items():
-                id_lote = int(id_lote_str)
-                
-                lote = session.get(Lotes, id_lote)
-                entrada= session.scalars(select(Entradas).where(Entradas.id_lote== lote.id_lote)).first() 
-                
-                if "CÓDIGO DE LOTE" in modificaciones:
-                        lote = session.get(Lotes, entrada.id_lote)
-                        if lote:
-                            nuevo_codigo = str(modificaciones["CÓDIGO DE LOTE"])
-                            mensaje= Lotes.validar_textos_lote(valor= nuevo_codigo, campo='código de lote')
-                        # Buscamos si ya existe el mismo código activo para ESTE insumo específico
-                        stmt_duplicado = select(Lotes).where(
-                            Lotes.id_insumo == lote.id_insumo,
-                            Lotes.codigo_lote == nuevo_codigo,
-                            Lotes.activo == True
-                        )
-                        lote_existente = session.exec(stmt_duplicado).first()
-                        if lote_existente:
-                            raise ValueError("DUPLICADO ACTIVO") # Retornamos un código de error controlado para la interfaz
-                        lote.codigo_lote= nuevo_codigo
-                        session.add(lote)
-                        #print(lote)
-
-                if "INSUMO ASOCIADO" in modificaciones:
-                    # busco el insumo con ese nombre
-                    insumo= session.scalars(select(Insumos).where(Insumos.nombre== modificaciones['INSUMO ASOCIADO'])).first() 
-                    if insumo and lote:
-                        if insumo.activo==False:
-                            raise ValueError('No se puede realizar la actualización porque el nuevo insumo está inactivo')
-                        if lote.stock_disponible<entrada.cantidad:
-                            raise ValueError(
-                        "No se puede editar el insumo. "
-                        f"Ya se han despachado {entrada.cantidad-lote.stock_disponible} unidades del lote "
-                        f"'{lote.codigo_lote}' en órdenes médicas activas."
-                    )
-                        # Buscamos si ya existe el mismo código activo para ESTE insumo específico
-                        stmt_duplicado = select(Lotes).where(
-                            Lotes.id_insumo == insumo.id_insumo,
-                            Lotes.codigo_lote == lote.codigo_lote,
-                            Lotes.activo == True
-                        )
-                        lote_existente = session.exec(stmt_duplicado).first()
-                        if lote_existente:
-                            raise ValueError("No se puede editar el insumo. Ya hay un insumo con este código de lote") # Retornamos un código de error controlado para la interfaz
-                        lote.id_insumo= insumo.id_insumo
-
-                # 3. Modificación de la ubicación en estanterías
-                if "UBICACIÓN FÍSICA" in modificaciones:
-                    lote.ubicacion_fisica = (modificaciones["UBICACIÓN FÍSICA"])
-                    mensaje= Lotes.validar_textos_lote(valor= lote.ubicacion_fisica, campo='ubicación')
-
-                # 4. Modificación de la Fecha de Vencimiento
-                if "FECHA VENCIMIENTO" in modificaciones:
-                    f_vence = modificaciones["FECHA VENCIMIENTO"]
-                    if isinstance(f_vence, str):
-                        lote.fecha_vencimiento = date.fromisoformat(f_vence)
-                    else:
-                        lote.fecha_vencimiento = f_vence
-                    mensaje= Lotes.validar_fecha_vencimiento(valor= lote.fecha_vencimiento)
-
-                # REGLAS AUTOMÁTICAS DE INACTIVACIÓN DE SEGURIDAD MÉDICA
-                if lote.stock_disponible == 0:
-                    lote.activo = False  
-                    lote.motivo_desactivacion = "AGOTADO"
-                else:
-                    if "ESTADO" in modificaciones:
-                        estado_celda = modificaciones["ESTADO"].upper()
-                        
-                        # REGLA CORTAFUEGOS: Insumo inactivo
-                        if estado_celda == "ACTIVO" and hasattr(lote, "insumo") and not lote.insumo.activo:
-                            session.rollback()        
-                            return "INSUMO_INACTIVO"  
-                        
-                        # Solución al error de escritura:
-                        # Si pasa de Inactivo a Activo, limpiamos el motivo de la desactivación previa
-                        nuevo_estado = (estado_celda == "ACTIVO")
-                        if nuevo_estado and not lote.activo:
-                            lote.motivo_desactivacion = None # Se limpia el rastro del error
-                        elif not nuevo_estado and lote.activo:
-                            lote.motivo_desactivacion = "DESACTIVACIÓN MANUAL"
-                            
-                        lote.activo = nuevo_estado
-
-                    session.add(lote)           
-            
-                # Aquí es donde SQLAlchemy compila el SQL y SQLite valida el índice compuesto
-                session.commit()
-                return True
-        
-        except ValueError as e:
-            session.rollback()
-            return f"✖️ REGLA LOGÍSTICA: {str(e)}"
-        except Exception as e:
-            session.rollback()
-            print(f"✖️ Error al intentar actualizar los lotes: {str(e)}")
-            return f"✖️ FALLA CRÍTICA EN BASE DE DATOS: {str(e)}"
         
 
 def anular_entrada_y_lote(id_entrada: int) -> tuple:

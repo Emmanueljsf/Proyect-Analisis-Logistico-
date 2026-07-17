@@ -2,7 +2,7 @@ import re # Para evaluar la estructura sintáctica del correo electrónico
 import hashlib # Para encriptar las contraseñas con el algoritmo SHA-256
 from typing import List, Optional
 from sqlmodel import Session, select
-from models import engine, Usuarios, Rol # Estructuras de datos nativas del ecosistema SIAL-MED
+from bd.models import engine, Usuarios, Rol # Estructuras de datos nativas del ecosistema SIAL-MED
 
 # ==============================================================================
 # SECCIÓN 1: VALIDACIONES DE SEGURIDAD Y FORMATO
@@ -53,15 +53,43 @@ def crear_usuario(usuario: Usuarios) -> bool:
             session.rollback() # Revierte los cambios ante fallos inesperados
             return False
 
-def obtener_usuarios() -> List[Usuarios]:
-    """Extrae la lista completa de usuarios de la base de datos"""
-    with Session(engine) as session: # Abre la conexión temporal con la DB
-        return session.exec(select(Usuarios)).all() # Exec: Ejecuta un SELECT * FROM usuarios
+
+def obtener_usuarios_filtrados(txt_buscar: str = "", rol_buscado: str = "TODOS", estado_buscado: str = "TODOS") -> List[Usuarios]:
+    """
+    Consulta y filtra el personal registrado en la base de datos aplicando criterios de búsqueda.
+
+    Parámetros:
+    - txt_buscar (str): Cadena de texto para filtrar por nombre de usuario (username).
+    - rol_buscado (str): Filtro por el rol del usuario ('TODOS' o el nombre del rol).
+    - estado_buscado (str): Filtro por estado lógico ('TODOS', 'ACTIVOS', 'INACTIVOS').
+
+    Retorna:
+    - List[Usuarios]: Una lista con los objetos Usuarios que cumplen con los filtros aplicados.
+    """
+    with Session(engine) as session:
+        condiciones = []
+        
+        if txt_buscar:
+            condiciones.append(Usuarios.username.ilike(f"%{txt_buscar}%"))
+            
+        if rol_buscado != "TODOS":
+            # Asumimos que el backend compara directamente con el valor del Enum
+            condiciones.append(Usuarios.rol == rol_buscado)
+            
+        if estado_buscado == "ACTIVOS":
+            condiciones.append(Usuarios.activo == True)
+        elif estado_buscado == "INACTIVOS":
+            condiciones.append(Usuarios.activo == False)
+            
+        statement = select(Usuarios).where(*condiciones)
+        return session.exec(statement).all()
+
 
 def obtener_usuario_por_id(id_usuario: int) -> Optional[Usuarios]:
     """Busca un usuario específico utilizando su Clave Primaria (ID)"""
     with Session(engine) as session:
         return session.get(Usuarios, id_usuario) # get: Busca directo por ID (o devuelve None)
+
 
 def actualizar_usuario(id_usuario: int, datos_nuevos: dict) -> bool:
     """Modifica un usuario validando que el nuevo username no choque con otro operador"""

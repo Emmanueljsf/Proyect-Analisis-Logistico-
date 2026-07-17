@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd  
-import CRUDs.crud_lotes_entradas as crud_le  
+import CRUDs.crud_entradas as crud_le  
 import CRUDs.crud_insumos as crud_i  # 💡 Importamos para alimentar las opciones de insumos en la celda
 from insumos1 import usuario_tiene_permiso_escritura
-from models import Rol
+from bd.models import Rol
 from reportes import generar_reporte_entradas_excel, generar_reporte_entradas_pdf
 from datetime import date, timedelta
 import time
@@ -85,8 +85,8 @@ def Vista_Entradas():
         # ==============================================================================
         # LAS 4 BARRAS DE BÚSQUEDA CORREGIDAS
         # ==============================================================================
-        with st.expander("🔍 Historial y Auditoría de Entradas (Filtros en Backend)", expanded=True):
-            f_col1, f_col2, f_col3, f_col4 = st.columns([2.5, 1.2, 1.8, 1.2])
+        with st.expander("🔍 Panel de filtros", expanded=True):
+            f_col1, f_col2, f_col3 = st.columns([2.5, 1.2, 1.2])
             
             with f_col1:
                 txt_universal = st.text_input(
@@ -94,15 +94,8 @@ def Vista_Entradas():
                     placeholder="Insumo, VED o código de lote...", 
                     key="fe_universal"
                 ).strip()
-                
+                            
             with f_col2:
-                txt_rango_cantidad = st.text_input(
-                    "Cantidad (Min-Max):", 
-                    placeholder="Ej: 100-500 o 50", 
-                    key="fe_cantidad"
-                ).strip()
-                
-            with f_col3:
                 # Filtrado basado en la propiedad fecha_recepcion
                 rango_fechas = st.date_input(
                     "Fecha de Recepción:", 
@@ -111,7 +104,7 @@ def Vista_Entradas():
                     key="fe_fecha"
                 )
                 
-            with f_col4:
+            with f_col3:
                 # Los estados reales mapeados del modelo
                 opt_estado = st.selectbox(
                     "Estado Acta:", 
@@ -127,7 +120,6 @@ def Vista_Entradas():
         
         tuplas_entradas, total_registros_bd = crud_le.obtener_entradas_filtradas_paginadas(
             txt_universal=txt_universal,
-            txt_rango_cantidad=txt_rango_cantidad,
             rango_fechas=rango_fechas,
             opt_estado=opt_estado,
             pagina_actual=st.session_state["pagina_entradas"],
@@ -136,22 +128,22 @@ def Vista_Entradas():
 
         filas_raw = []
         if tuplas_entradas:
-            for entrada_obj, lote_obj, insumo_obj in tuplas_entradas:
-                ved = insumo_obj.clasificacion_ved.value if hasattr(insumo_obj.clasificacion_ved, "value") else insumo_obj.clasificacion_ved
+            for entrada in tuplas_entradas:
+                ved = entrada.lote.insumo.clasificacion_ved.value if hasattr(entrada.lote.insumo.clasificacion_ved, "value") else entrada.lote.insumo.clasificacion_ved
                 ved_txt = 'VITAL' if ved=='V' else 'ESENCIAL' if ved=='E' else 'DESEABLE'
-                nombre_completo = f"{entrada_obj.usuario.nombres.split()[0]} {entrada_obj.usuario.apellidos.split()[0]}"
+                nombre_completo = f"{entrada.usuario.nombres.split()[0]} {entrada.usuario.apellidos.split()[0]}"
                 
                 filas_raw.append({
-                    "ID": entrada_obj.id_entrada,
-                    "INSUMO MÉDICO": insumo_obj.nombre,
-                    "CÓDIGO LOTE": lote_obj.codigo_lote,
+                    "ID": entrada.id_entrada,
+                    "INSUMO MÉDICO": entrada.lote.insumo.nombre,
+                    "CÓDIGO LOTE": entrada.lote.codigo_lote,
                     "CLASIFICACIÓN VED": ved_txt,
-                    "CANTIDAD": entrada_obj.cantidad,
-                    "FECHA PEDIDO": entrada_obj.fecha_pedido,
-                    "FECHA RECEPCIÓN": entrada_obj.fecha_recepcion,
-                    'TIEMPO ENTREGA': entrada_obj.tiempo_entrega_dias, 
+                    "CANTIDAD": entrada.cantidad,
+                    "FECHA PEDIDO": entrada.fecha_pedido,
+                    "FECHA RECEPCIÓN": entrada.fecha_recepcion,
+                    'TIEMPO ENTREGA': entrada.tiempo_entrega_dias, 
                     "RESPONSABLE": nombre_completo,
-                    "ESTADO": entrada_obj.estado
+                    "ESTADO": entrada.estado
                 })
 
         # Construcción exacta para que si está vacío no pinte registros fantasmas
@@ -175,7 +167,6 @@ def Vista_Entradas():
         if st.session_state.get("user_rol") == Rol.Administrador:
             usuario_actual = st.session_state.get("user_nombre_completo", "ADMINISTRADOR SIAL-MED")
             
-            f_cantidad = txt_rango_cantidad if 'txt_rango_cantidad' in locals() else ""
             f_fechas = rango_fechas if 'rango_fechas' in locals() else None
             f_estado = opt_estado if 'opt_estado' in locals() else "VALIDO"
                         
@@ -186,7 +177,7 @@ def Vista_Entradas():
                     with st.spinner("Procesando Excel..."):
                         
                         # 2. La consulta a la BD SOLO ocurre AQUÍ tras hacer clic
-                        datos_l_excel = generar_reporte_entradas_excel(txt_universal, f_cantidad, f_fechas, f_estado, usuario_actual)
+                        datos_l_excel = generar_reporte_entradas_excel(txt_universal, f_fechas, f_estado, usuario_actual)
                         
                         if datos_l_excel:
                             # 3. Si hay datos, habilitamos el botón nativo de descarga
@@ -208,7 +199,7 @@ def Vista_Entradas():
                     with st.spinner("Procesando PDF..."):
                         
                         # 2. La consulta a la BD SOLO ocurre AQUÍ tras hacer clic
-                        datos_l_pdf = generar_reporte_entradas_pdf(txt_universal, f_cantidad, f_fechas, f_estado, usuario_actual)
+                        datos_l_pdf = generar_reporte_entradas_pdf(txt_universal, f_fechas, f_estado, usuario_actual)
                         
                         if datos_l_pdf:
                             # 3. Si hay datos, habilitamos el botón nativo de descarga
@@ -245,7 +236,6 @@ def Vista_Entradas():
                     df_entradas,
                     use_container_width=True,
                     hide_index=True,
-                    height=380,
                     key="editor_entradas_grilla",
                     disabled=["ID", "CLASIFICACIÓN VED", "RESPONSABLE", "FECHA RECEPCIÓN", 'TIEMPO ENTREGA'], 
                     column_config={
@@ -316,5 +306,6 @@ def Vista_Entradas():
                 st.rerun()
     
     except Exception as e:
+            st.error(f"Error crítico en la vista de entradas: {e}")
             print(f"Error crítico en la vista de entradas: {e}")
             return [], 0

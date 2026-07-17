@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd  
-import CRUDs.crud_lotes_entradas as crud_l  
+import CRUDs.crud_lotes as crud_l  
 import CRUDs.crud_insumos as crud_ins  # Importamos para obtener la lista de opciones de insumos
 from insumos1 import usuario_tiene_permiso_escritura
 from reportes import generar_reporte_lotes_excel, generar_reporte_lotes_pdf
-from datetime import date
+from datetime import date, timedelta
 import time
 import math
 
@@ -44,7 +44,7 @@ def Vista_Control_Lotes():
             with f_col3:
                 rango_vencimiento = st.date_input(
                     "Ventana de Vencimiento:", 
-                    value=[date(2024, 1, 1), date(2030, 12, 31)], 
+                    value=[date.today()-timedelta(days=30), date.today()+timedelta(days=365)],
                     format="DD/MM/YYYY", 
                     key="fl_fecha"
                 )
@@ -74,7 +74,7 @@ def Vista_Control_Lotes():
                 ved = insumo_obj.clasificacion_ved.value if hasattr(insumo_obj.clasificacion_ved, "value") else insumo_obj.clasificacion_ved
                 ved_txt = 'VITAL' if ved=='V' else 'ESENCIAL' if ved=='E' else 'DESEABLE'
                 
-                # 🛠️ Recuperamos el motivo de desactivación real del objeto de la BD
+                # Recuperamos el motivo de desactivación real del objeto de la BD
                 motivo = lote_obj.motivo_desactivacion if lote_obj.motivo_desactivacion else ""
                 
                 registro = {
@@ -88,7 +88,7 @@ def Vista_Control_Lotes():
                     "ESTADO": "ACTIVO" if lote_obj.activo else "INACTIVO"
                 }
                 
-                # 🔄 CONDICIÓN: Se añade la columna al diccionario si el estado no es meramente "ACTIVOS"
+                # CONDICIÓN: Se añade la columna al diccionario si el estado no es meramente "ACTIVOS"
                 if opt_estado != "ACTIVOS":
                     registro["MOTIVO DESACTIVACIÓN"] = motivo
                     

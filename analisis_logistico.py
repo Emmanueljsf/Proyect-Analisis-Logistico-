@@ -1,5 +1,5 @@
 from sqlmodel import Session, select, func
-from models import Salidas, DetallesSalida, Entradas, Lotes, Insumos, engine, Estado
+from bd.models import Salidas, DetallesSalida, Entradas, Lotes, Insumos, engine, Estado
 from datetime import datetime, date, timedelta
 import pandas as pd
 import numpy as np
@@ -84,7 +84,7 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
             
             stmt_insumos_lookup = select(Insumos.id_insumo, Insumos.nombre, Insumos.clasificacion_ved)
             df_insumos_lookup = pd.DataFrame(session.exec(stmt_insumos_lookup).all(), columns=["id_insumo", "nombre_insumo", "clasificacion_ved"])
-            df_insumos_lookup["nombre_insumo"] = df_insumos_lookup["nombre_insumo"].str.upper()
+            df_insumos_lookup["nombre_insumo"] = df_insumos_lookup["nombre_insumo"]
             df_insumos_lookup["clasificacion_ved"] = df_insumos_lookup["clasificacion_ved"].str.upper()
             
             df_lotes = pd.merge(df_lotes, df_insumos_lookup, on="id_insumo", how="left")
@@ -161,7 +161,7 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
             
             df_rop_final["stock_disponible"] = df_rop_final["stock_disponible"].fillna(0).astype(int)
             df_rop_final["cpd"] = df_rop_final["cpd"].fillna(0)
-            df_rop_final["lead_time_promedio"] = df_rop_final["lead_time_promedio"].fillna(5.0) 
+            df_rop_final["lead_time_promedio"] = df_rop_final["lead_time_promedio"].fillna(0) 
             
             # Respaldo teórico si el historial es muy corto para calcular desviaciones
             df_rop_final["desviacion_demanda"] = df_rop_final["desviacion_demanda_real"].fillna(df_rop_final["cpd"] * 0.20)
@@ -217,10 +217,10 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
                 dias_stock = row["dias_duracion_stock"]
                 if dias_vencer <= 0:
                     return "🚨 LOTE VENCIDO (AISLAR)"
-                elif dias_vencer <= 20 and dias_stock > dias_vencer:
+                elif dias_vencer <= 20 and dias_stock >= dias_vencer:
                     return "⚠️ CRÍTICO (MENOS DE 20 DÍAS)"
-                elif dias_stock > dias_vencer:
-                    return "🔄 ALERTA: RIESGO DE MERMA (DONAR/TRASLADAR)"
+                elif dias_stock >= dias_vencer:
+                    return "🔄 ALERTA: RIESGO DE MERMA"
                 return "✔️​ SEGURO"
                     
             df_caducidad["alerta_vencimiento"] = df_caducidad.apply(detectar_riesgo_vencimiento, axis=1)
@@ -238,7 +238,7 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
                     return int(np.ceil(max(0, excedente)))
                 return 0
 
-            df_caducidad["cantidad_riesgo"] = df_caducidad.apply(calcular_cantidad_en_riesgo, axis=1)
+            df_caducidad["cantidad_riesgo"] = df_caducidad.apply(calcular_cantidad_en_riesgo, axis=1)*1.20
             
             return df_rop_final, df_caducidad
     

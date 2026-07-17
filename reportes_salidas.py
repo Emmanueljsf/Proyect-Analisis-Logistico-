@@ -1,10 +1,10 @@
 from reportes import *
+import CRUDs.crud_salidas as crud_salidas
 
 def generar_reporte_salidas_excel(txt_universal: str, rango_fechas: list, opt_estado: str, usuario_emisor: str) -> bytes:
     """
     Genera el reporte en bloques tipo tarjetas herméticas.
     """
-    
     # crear emisor
     emisor_limpio = "Usuario de Auditoria" if isinstance(usuario_emisor, bool) else str(usuario_emisor)
     
@@ -109,9 +109,9 @@ def generar_reporte_salidas_excel(txt_universal: str, rango_fechas: list, opt_es
             for det in renglones_detalles:
                 ws.cell(row=fila_actual, column=1, value=det[0]).alignment = ALINEAR_CENTRO
                 ws.cell(row=fila_actual, column=2, value=f"  {det[2]}").alignment = ALINEAR_IZQ
-                ws.cell(row=fila_actual, column=3, value=det[3]).alignment = ALINEAR_CENTRO
+                ws.cell(row=fila_actual, column=3, value=det[4]).alignment = ALINEAR_CENTRO # det[4] es el código de lote
                 
-                c4 = ws.cell(row=fila_actual, column=4, value=f"{int(det[4])} u.")
+                c4 = ws.cell(row=fila_actual, column=4, value=f"{int(det[5])} u.") # det[5] es la cantidad
                 c4.alignment = ALINEAR_CENTRO
                 c4.font = Font(name="Arial", size=9, bold=True)
                 
@@ -260,10 +260,10 @@ def generar_reporte_salidas_pdf(txt_universal: str, rango_fechas: list, opt_esta
                 pdf.cell(20, 5, str(det[0]), 1, 0, 'C')
                 nombre_insumo_recortado = det[2][:62] + "..." if len(det[2]) > 62 else det[2]
                 pdf.cell(111, 5, f" {nombre_insumo_recortado}", 1, 0, 'L')
-                pdf.cell(35, 5, str(det[3]), 1, 0, 'C')
+                pdf.cell(35, 5, str(det[4]), 1, 0, 'C') # det[4] es el código de lote
                 
                 pdf.set_font('Arial', 'B', 8)
-                pdf.cell(30, 5, f"{int(det[4])} u.", 1, 1, 'C')
+                pdf.cell(30, 5, f"{int(det[5])} u.", 1, 1, 'C') # det[5] es la cantidad
                 pdf.set_font('Arial', '', 8)
         else:
             pdf.set_font('Arial', 'I', 8)
@@ -271,5 +271,114 @@ def generar_reporte_salidas_pdf(txt_universal: str, rango_fechas: list, opt_esta
         
         # Separación limpia antes de la siguiente tarjeta/tabla autónoma
         pdf.ln(5) 
+
+    return bytes(pdf.output(dest='S'))
+
+
+# GENERADOR DEL ACTA DE PÉRDIDA POR CADUCIDAD
+def generar_reporte_perdida_caducidad_pdf(datos_despacho: dict, lista_insumos: list, usuario_emisor: str) -> bytes:
+    """
+    Genera un acta oficial de desincorporación y pérdida de insumos médicos por caducidad.
+    Esta acta sirve como documento de auditoría y descargo de inventario para justificar 
+    la destrucción, merma o desincorporación física de lotes vencidos en el sistema.
+
+    Parametros:
+        datos_despacho (dict): Metadatos de la transacción. Debe contener:
+            - 'orden_salida' (str), 'paciente_destino' (str), 'fecha' (datetime/str), 
+            lista_insumos (list):  Cada elemento debe ser un dict con:
+            - 'nombre_insumo' (str)
+            - 'codigo_lote' (str)
+            - 'cantidad' (int)
+        usuario_emisor (str): Nombre del operador o responsable técnico que realiza la baja.
+
+    Returns:
+        bytes: Stream binario del PDF generado listo para descarga o previsualización.
+    """
+    if not lista_insumos:
+        return b""
+
+    pdf = PDFBaseSIALMED(orientation='P', unit='mm', format='letter')
+    pdf.alias_nb_pages()
+    pdf.set_auto_page_break(True, 40)
+
+    titulo_acta = "ACTA OFICIAL DE DESINCORPORACION Y PERDIDA POR CADUCIDAD"
+    orden = datos_despacho.get('orden_salida', 'S/N')
+    destino = datos_despacho.get('paciente_destino', 'Área de Destrucción')
+    
+    fecha_mov = datos_despacho.get('fecha')
+    fecha_str = fecha_mov.strftime('%d/%m/%Y %H:%M') if isinstance(fecha_mov, datetime) else str(fecha_mov)
+        
+    # Cambiado para evitar que diga "Filtros Aplicados"
+    contexto_documento = f"Orden: {orden}"
+    usuario_limpio = usuario_emisor
+
+    # Registrar en la clase base compartida
+    anchos_columnas = [110, 45, 40]
+    titulos_columnas = ['INSUMO DESINCORPORADO', 'CODIGO DE LOTE', 'CANTIDAD DE BAJA']
+    alineaciones = ['L', 'C', 'C']
+    pdf.registrar_datos_tabla(titulo_acta, usuario_limpio, contexto_documento, anchos_columnas, titulos_columnas, alineaciones)
+
+    # Agregar página y escribir subcabecera de forma MANUAL (Evita "Filtros Aplicados")
+    pdf.add_page()
+    pdf.set_font('Helvetica', 'B', 12)
+    pdf.cell(0, 6, titulo_acta, ln=1, align='L')
+    pdf.set_font('Helvetica', '', 9)
+    # Renderizado directo de metadatos sin prefijos automáticos defectuosos
+    pdf.cell(0, 5, f"Fecha de Emisión: {datetime.now().strftime('%d/%m/%Y %I:%M %p')}", ln=1)
+    pdf.cell(0, 5, f"Generado por: {usuario_limpio}", ln=1)
+    pdf.cell(0, 5, contexto_documento, ln=1) # <-- Aquí imprimimos el contexto limpio directamente
+    pdf.ln(5)
+
+    # Párrafo redactado de forma limpia y profesional
+    pdf.set_font('Helvetica', 'B', 10)
+    pdf.cell(0, 6, "DECLARACION DE PERDIDA Y EXCLUSION DE INVENTARIO:", ln=1, align='L')
+    pdf.set_font('Helvetica', '', 10)
+    
+    justificacion = (
+        f"Por medio de la presente acta se hace constar la desincorporación física y exclusión del "
+        f"inventario de los insumos médicos detallados a continuación. Esta acción se ejecuta "
+        f"bajo el motivo de 'Pérdida por Caducidad'. Los elementos han sido remitidos formalmente a "
+        f"'{destino}' para su debida custodia, aislamiento y posterior disposición final "
+        f"según las regulaciones sanitarias de la institución."
+    )
+    pdf.multi_cell(0, 5, justificacion)
+    pdf.ln(6)
+
+    # Renderizar tabla
+    pdf._escribir_cabecera_tabla(tamano_fuente=9.5)
+
+    total_unidades = 0
+    for item in lista_insumos:
+        nombre = item.get('nombre_insumo')
+        lote = item.get('codigo_lote')
+        cantidad = int(item.get('cantidad', 0))
+        total_unidades += cantidad
+
+        fila_datos = [nombre, lote, f"{cantidad} unds."]
+        pdf.imprimir_fila_adaptativa(fila_datos, tamano_fuente=9.5)
+
+    # Totales
+    pdf.set_font('Helvetica', 'B', 9)
+    pdf.cell(155, 7, "TOTAL DE UNIDADES DESINCORPORADAS:", border=1, align='R')
+    pdf.cell(40, 7, f"{total_unidades} unds.", border=1, align='C', ln=1)
+    pdf.ln(15)
+
+    # Bloque de firmas
+    if pdf.get_y() > 200:
+        pdf.add_page()
+        pdf.ln(10)
+
+    pdf.set_font('Helvetica', 'B', 9)
+    x_inicial = pdf.get_x()
+    y_actual = pdf.get_y()
+
+    pdf.line(x_inicial + 10, y_actual + 15, x_inicial + 80, y_actual + 15)
+    pdf.set_xy(x_inicial + 10, y_actual + 16)
+    pdf.multi_cell(70, 4, f"Entregado / Reportado por:\n{usuario_limpio}\nResponsable de Almacén", align='C')
+
+    pdf.set_xy(x_inicial + 115, y_actual)
+    pdf.line(x_inicial + 115, y_actual + 15, x_inicial + 185, y_actual + 15)
+    pdf.set_xy(x_inicial + 115, y_actual + 16)
+    pdf.multi_cell(70, 4, "Autorizado y Validado por:\n\nFirma de la Dirección Médica", align='C')
 
     return bytes(pdf.output(dest='S'))
