@@ -38,7 +38,7 @@ st.markdown("""
     <style>
         @media (max-width: 600px) {
             :root {
-                --base-font-size: 0.7rem;
+                --base-font-size: 0.8rem;
             }
             html, body, [class*="css"] {
                 font-size: var(--base-font-size) !important;

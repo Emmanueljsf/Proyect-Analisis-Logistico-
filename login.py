@@ -39,7 +39,7 @@ def Vista_Login(credenciales_primer_uso=None):
     with st.container(border=True):
         st.subheader("Inicio de Sesión")
         
-        txt_user = st.text_input("Nombre de Usuario / Username:", placeholder="Ej: yuka")
+        txt_user = st.text_input("Nombre de Usuario / Username:", placeholder="Ej: diamante")
         txt_pass = st.text_input("Contraseña del Sistema:", type="password", placeholder="••••••••")
         
         st.write("") # Espaciador manual
