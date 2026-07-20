@@ -6,16 +6,11 @@ import time  # Control de pausas para confirmaciones visuales
 import math
 from datetime import datetime
 import io
+from seguridad import es_administrador, usuario_tiene_permiso_escritura
 from reportes import generar_reporte_insumos_excel, generar_reporte_insumos_pdf
+import uuid
+import logging
 
-# Roles autorizados para alterar datos del catálogo médico
-ROLES_AUTORIZADOS = [Rol.Administrador, Rol.Encargado]
-
-def usuario_tiene_permiso_escritura() -> bool:
-    """Evalúa los rangos en sesión para habilitar o bloquear la edición."""
-    es_autenticado = st.session_state.get("usuario_autenticado", False)  # Revisa login
-    rol_usuario = st.session_state.get("user_rol", None)  # Captura rol del usuario
-    return es_autenticado and (rol_usuario in ROLES_AUTORIZADOS)  # Retorna permiso booleano
 
 
 # FUNCIÓN PARA PINTAR EL FONDO DE LA PALABRA
@@ -29,32 +24,52 @@ def colorear_celda_ved(valor):
         return "background-color: #d4edda; color: #155724; font-weight: bold; text-align: center;"  # 🟢 Fondo Verde suave
     return "text-align: center;"
 
+
 @st.dialog("📦 Registrar Nuevo Insumo")
 def modal_registro_insumo():
-    try: 
-        """Ventana flotante simplificada para añadir un artículo de forma limpia."""
-        st.markdown("<p style='color:gray;'>Ingrese los datos básicos para el catálogo general.</p>", unsafe_allow_html=True)
-        
-        txt_nombre = st.text_input("Nombre del Insumo / Medicamento *", placeholder="Ej: AMOXICILINA 500MG")
-        opc_ved = st.selectbox("Clasificación VED *", ["V", "E", "D"], help="V: Vital, E: Esencial, D: Diario")
-        
-        st.write("")
-        c_save, c_cancel = st.columns(2)
-        with c_save:
-            if st.button("💾 REGISTRAR", use_container_width=True, type="primary"):
-                if not txt_nombre.strip():
-                    st.error("🛑 El nombre es obligatorio.")
-                else:
-                    crud_insumos.crear_insumo(txt_nombre.upper(), opc_ved)
-                    st.success("¡Insumo creado con éxito!")
-                    time.sleep(1.2)
+    """
+    Ventana flotante simplificada para añadir un artículo de forma limpia.
+    Implementa logs estructurados y manejo seguro de errores mediante UUID.
+    """
+    # PROTECCIÓN: Contenedor para mensajes de error de UI
+    contenedor_msg = st.empty()
+    
+    try:
+        if not usuario_tiene_permiso_escritura():
+            st.error("❌ Acceso restringido: No tienes el permiso para acceder a este formulario.")
+        else:
+            st.markdown("<p style='color:gray;'>Ingrese los datos básicos para el catálogo general.</p>", unsafe_allow_html=True)
+            
+            txt_nombre = st.text_input("Nombre del Insumo / Medicamento *", placeholder="Ej: AMOXICILINA 500MG")
+            opc_ved = st.selectbox("Clasificación VED *", ["V", "E", "D"], help="V: Vital, E: Esencial, D: Diario")
+            
+            st.write("")
+            c_save, c_cancel = st.columns(2)
+            with c_save:
+                if st.button("💾 REGISTRAR", use_container_width=True, type="primary"):
+                    if not txt_nombre.strip():
+                        contenedor_msg.error("🛑 El nombre es obligatorio.")
+                    else:
+                        try:
+                            # Registro en base de datos protegido
+                            crud_insumos.crear_insumo(txt_nombre, opc_ved)
+                            st.success("¡Insumo creado con éxito!")
+                            time.sleep(1.2)
+                            st.rerun()
+                        except Exception as e:
+                            # Trazabilidad Avanzada al fallar la persistencia
+                            correlation_id = str(uuid.uuid4())
+                            logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "modal_registro_insumo_bd"}}')
+                            contenedor_msg.error(f"Error al guardar. Reporte el código: [{correlation_id}]")
+            with c_cancel:
+                if st.button("CANCELAR", use_container_width=True):
                     st.rerun()
-        with c_cancel:
-            if st.button("CANCELAR", use_container_width=True):
-                st.rerun()
 
     except Exception as e:
-            print(f"🛑 Error crítico en el formulario de registro de insumos: {e}")
+        # 🔍 CAPA EXTERNA DE PROTECCIÓN DEL DIÁLOGO
+        correlation_id = str(uuid.uuid4())
+        logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "modal_registro_insumo_ui"}}')
+        st.error(f"Error fatal en el formulario. Reporte el código: [{correlation_id}]")
 
 def Insumos():
     try:
@@ -92,7 +107,7 @@ def Insumos():
                 if tiene_permisos and st.button("➕ NUEVO INSUMO", use_container_width=True, type="primary"):
                     modal_registro_insumo()
 
-        if st.session_state.get("user_rol") == Rol.Administrador:
+        if es_administrador():
             usuario_actual = st.session_state.get("user_nombre_completo", "OPERADOR SIAL-MED")
             
             # SECCIÓN: REPORTE EN EXCEL
@@ -208,7 +223,7 @@ def Insumos():
             df_estilizado = df_pagina_actual.style.applymap(colorear_celda_ved, subset=["CLASIFICACIÓN VED"])
         else:
             df_estilizado = df_pagina_actual
-
+        
         # ==============================================================================
         # 4. RENDERIZADO DEL DATAFRAME EDITABLE / SOLO LECTURA
         # ==============================================================================
@@ -222,7 +237,7 @@ def Insumos():
                 column_config={
                     "ID": st.column_config.NumberColumn(width="small"),
                     "NOMBRE DEL INSUMO": st.column_config.TextColumn(width='big'),
-                    "CLASIFICACIÓN VED": st.column_config.SelectboxColumn(options=["VITAL", "ESENCIAL", "DESEABLE"], width="medium"),
+                    "CLASIFICACIÓN VED": st.column_config.SelectboxColumn(options=["VITAL", "ESENCIAL", "DESEABLE"], required=True, width="medium"),
                     "STOCK DISPONIBLE": st.column_config.NumberColumn(format="%d unds.", width="medium"),
                     "ESTADO": st.column_config.SelectboxColumn(options=["ACTIVO", "INACTIVO"], width="small", required=True)
                 }
@@ -288,8 +303,9 @@ def Insumos():
                 st.session_state["pagina_insumos"] += 1
                 st.rerun()
 
-        
-        
 
     except Exception as e:
-            print(f"Error crítico en la vista de insumos: {e}")
+        # Observabilidad (Trazabilidad Avanzada)
+        correlation_id = str(uuid.uuid4())
+        logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "nombre_modulo"}}')
+        st.error(f"Ocurrió un error inesperado. Reporte el código: [{correlation_id}]")

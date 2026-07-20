@@ -1,3 +1,6 @@
+import uuid
+import logging
+import streamlit as st
 from sqlmodel import Session, select, func
 from bd.models import Salidas, DetallesSalida, Entradas, Lotes, Insumos, engine, Estado
 from datetime import datetime, date, timedelta
@@ -243,5 +246,7 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
             return df_rop_final, df_caducidad
     
     except Exception as e:
-        print(f"Error crítico en la función de analisis logistico: {e}")
-        return pd.DataFrame(), pd.DataFrame()
+        correlation_id = str(uuid.uuid4())
+        # Log estructurado para el Avance #6
+        logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "analisis_logistico"}}')
+        st.error(f"Error procesando métricas. Reporte el código: [{correlation_id}]")

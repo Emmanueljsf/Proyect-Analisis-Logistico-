@@ -1,3 +1,6 @@
+import uuid
+import logging
+from seguridad import sanitizar_input, es_administrador
 import re # Para evaluar la estructura sintáctica del correo electrónico
 import hashlib # Para encriptar las contraseñas con el algoritmo SHA-256
 from typing import List, Optional
@@ -29,12 +32,28 @@ def encriptar_password(password: str) -> str:
 # ==============================================================================
 
 def crear_usuario(usuario: Usuarios) -> bool:
-    """Registra un usuario previniendo duplicados y aceptando email nulo"""
-    with Session(engine) as session: # Contexto with: Abre la conexión segura con la DB
+    """
+    Registra un nuevo usuario en la base de datos tras validar permisos y unicidad.
+
+    Parámetros:
+    - usuario (Usuarios): Objeto de modelo con los datos del nuevo usuario.
+
+    Retorna:
+    - bool: True si la creación fue exitosa, False en caso de error.
+    - Lanza ValueError: Si el username ya existe o los datos no cumplen las reglas de formato.
+    """
+    # BARRERA BLUETEAM: Solo administradores pueden crear usuarios
+    if not es_administrador():
+        return False
+
+    with Session(engine) as session:
         try:
+            # SANITIZACIÓN: Limpieza de inputs sensibles
+            usuario.username = sanitizar_input(usuario.username)
+            
             # Unicidad crear: Busca si el username exacto ya existe en la tabla
             st_unicidad = select(Usuarios).where(Usuarios.username == usuario.username)
-            if session.exec(st_unicidad).first(): # Si halla coincidencia, aborta
+            if session.exec(st_unicidad).first():
                 raise ValueError(f"El nombre de usuario '{usuario.username}' ya está registrado.")
 
             # Normalización: Si el email viene vacío, se guarda como NULL en la base de datos
@@ -44,13 +63,16 @@ def crear_usuario(usuario: Usuarios) -> bool:
             validar_datos_usuario(usuario.password, usuario.email) # Corre la validación de formatos
             
             usuario.password = encriptar_password(usuario.password) # Aplica hash a la clave plana
-            session.add(usuario) # Coloca el objeto armado en la cola de la sesión
-            session.commit() # Sella la transacción físicamente en el disco duro
-            return True # Retorna verdadero si el alta fue exitosa
+            session.add(usuario) 
+            session.commit() 
+            return True 
         except ValueError as ve:
-            raise ve # Propaga el error específico de validación a Streamlit
-        except Exception:
-            session.rollback() # Revierte los cambios ante fallos inesperados
+            raise ve 
+        except Exception as e:
+            # TRAZABILIDAD AVANZADA: Log estructurado con UUID
+            correlation_id = str(uuid.uuid4())
+            logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "crear_usuario"}}')
+            session.rollback() 
             return False
 
 
@@ -92,22 +114,39 @@ def obtener_usuario_por_id(id_usuario: int) -> Optional[Usuarios]:
 
 
 def actualizar_usuario(id_usuario: int, datos_nuevos: dict) -> bool:
-    """Modifica un usuario validando que el nuevo username no choque con otro operador"""
+    """
+    Modifica un usuario existente validando unicidad, permisos y formato.
+
+    Parámetros:
+    - id_usuario (int): ID del usuario a modificar.
+    - datos_nuevos (dict): Diccionario con los campos a actualizar.
+
+    Retorna:
+    - bool: True si la actualización fue exitosa, False si no se encuentra el usuario.
+    - Lanza ValueError: Si el nuevo username está ocupado o los datos son inválidos.
+    """
+    #  BARRERA BLUETEAM: Solo administradores pueden editar usuarios
+    if not es_administrador():
+        raise PermissionError("Acceso denegado: Se requieren privilegios de administrador.")
+
     try:
-        with Session(engine) as session: # Establece conexión con el backend
-            usuario_db = session.get(Usuarios, id_usuario) # Recupera el registro actual de la DB
+        with Session(engine) as session:
+            usuario_db = session.get(Usuarios, id_usuario)
             if not usuario_db:
-                return False # Aborta la función si el ID no existe en el sistema
+                return False
             
             # Unicidad editar: Si se cambia el username, valida que no lo tenga otra persona
             nuevo_username = datos_nuevos.get("username")
             if nuevo_username and nuevo_username != usuario_db.username:
+                # 🧼 SANITIZACIÓN
+                nuevo_username = sanitizar_input(nuevo_username)
                 st_unicidad = select(Usuarios).where(
                     Usuarios.username == nuevo_username, 
-                    Usuarios.id_usuario != id_usuario # Excluye mi propio ID de la búsqueda
+                    Usuarios.id_usuario != id_usuario
                 )
-                if session.exec(st_unicidad).first(): # Si lo tiene otro ID, frena la edición
+                if session.exec(st_unicidad).first():
                     raise ValueError(f"El nombre de usuario '{nuevo_username}' ya está ocupado.")
+                datos_nuevos["username"] = nuevo_username
 
             # Recolecta los datos finales combinados para la validación de formatos
             pwd_a_validar = datos_nuevos.get("password")
@@ -116,43 +155,30 @@ def actualizar_usuario(id_usuario: int, datos_nuevos: dict) -> bool:
             # Formateo email opcional en edición
             if email_a_validar and str(email_a_validar).strip() == "":
                 email_a_validar = None
-                datos_nuevos["email"] = None # Setea un None real en el mapa de cambios
+                datos_nuevos["email"] = None
 
             try:
-                validar_datos_usuario(pwd_a_validar, email_a_validar) # Valida contraseñas y correos
-                
-                if datos_nuevos.get("password"): # Si se envió una nueva contraseña en el formulario...
-                    datos_nuevos["password"] = encriptar_password(datos_nuevos["password"]) # ...la encripta
-                    
+                validar_datos_usuario(pwd_a_validar, email_a_validar)
+                if datos_nuevos.get("password"):
+                    datos_nuevos["password"] = encriptar_password(datos_nuevos["password"])
             except ValueError as ve:
-                raise ve # Lanza el error para pintar la alerta roja en la interfaz
+                raise ve
                 
-            # Asignación dinámica: Vuelca los valores del diccionario en el objeto mapeado
             for key, value in datos_nuevos.items():
-                setattr(usuario_db, key, value) # Asigna el valor correspondiente al atributo
+                setattr(usuario_db, key, value)
                 
-            session.add(usuario_db) # Marca la entidad como modificada para la sesión
-            session.commit() # Ejecuta la sentencia SQL UPDATE de forma atómica
-            return True # Retorna confirmación de éxito
+            session.add(usuario_db)
+            session.commit()
+            return True
     
     except Exception as e:
-            print(f"Error crítico en actializar usuario: {e}")
+        # TRAZABILIDAD AVANZADA
+        correlation_id = str(uuid.uuid4())
+        logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "actualizar_usuario"}}')
+        return False
 
 
-# NO ESTÁ EN USO
-def eliminar_usuario(id_usuario: int) -> bool:
-    """Remueve una cuenta de usuario de la base de datos"""
-    with Session(engine) as session: # Inicializa el bloque de conexión
-        usuario = session.get(Usuarios, id_usuario) # Localiza el objetivo apuntado
-        if usuario:
-            try:
-                session.delete(usuario) # delete: Elimina el registro del mapa de datos
-                session.commit() # Aplica el borrado definitivo en el archivo SQLite
-                return True # Retorna verdadero indicando eliminación exitosa
-            except Exception:
-                session.rollback() # Cancela el borrado por seguridad de datos
-                return False # Falso si el usuario tiene transacciones amarradas en cascada
-        return False # Falso si el ID no correspondía a nadie
+
 
 # ==============================================================================
 # SECCIÓN 3: LOGUEO Y CONTROL DE ACCESO

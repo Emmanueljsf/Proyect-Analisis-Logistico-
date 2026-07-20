@@ -4,11 +4,13 @@ import CRUDs.crud_salidas as crud_salidas
 from registro_salidas import modal_registro_salida_fefo
 from reportes_salidas import generar_reporte_salidas_excel, generar_reporte_salidas_pdf
 from bd.models import Rol
-from insumos1 import usuario_tiene_permiso_escritura
+from seguridad import es_administrador, usuario_tiene_permiso_escritura
 from datetime import date, timedelta
 import time
 import math
 import base64
+import uuid
+import logging
 
 def Vista_Salidas():
     try:
@@ -261,7 +263,7 @@ def Vista_Salidas():
         
         if id_salida_target is not None:
             st.markdown(f"##### 💊 Insumos Médicos Despachados en la Aalida seleccionada: `#{id_salida_target}`")
-            print(id_salida_target)
+            #print(id_salida_target)
             
             # Invocamos la función de tu backend
             tuplas_detalles = crud_salidas.obtener_detalles_insumos_por_acta(id_salida_target)
@@ -340,5 +342,7 @@ def Vista_Salidas():
                             st.error(resultado)
 
     except Exception as e:
-        print(f"Error crítico en la vista de salidas: {e}")
-        return st.error(f"Error crítico en la vista de salidas: {e}")
+        # Observabilidad (Trazabilidad Avanzada)
+        correlation_id = str(uuid.uuid4())
+        logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "vista de salidas"}}')
+        st.error(f"Ocurrió un error inesperado. Reporte el código: [{correlation_id}]")

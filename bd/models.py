@@ -249,7 +249,6 @@ class Entradas(SQLModel, table=True):
 
 class Salidas(SQLModel, table=True):
     __table_args__ = (
-        # 🎯 BLINDAJE DE SALIDAS vivos:
         # Bloquea duplicados de órdenes de salida SOLO si el estado es 'VALIDO'.
         # Permite reutilizar el número si el registro histórico previo fue 'ANULADO'.
         Index(
