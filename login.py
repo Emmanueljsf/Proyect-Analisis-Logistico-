@@ -18,7 +18,7 @@ def Vista_Login(credenciales_primer_uso=None):
         # Renderiza la imagen en la columna central ocupando todo su ancho disponible
         st.image("media/emblema proyecto.jpg", use_container_width=True)
 
-    st.markdown("<h2 style='text-align: center;'>🔐 SIAL-MEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🔐 SIAL-MED</h2>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: gray;'>Sistema de Análisis Logístico de Insumos Médicos</p>", unsafe_allow_html=True)
     
 
