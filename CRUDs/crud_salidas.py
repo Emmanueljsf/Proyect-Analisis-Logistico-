@@ -350,7 +350,7 @@ def obtener_detalles_insumos_por_acta(id_salida: int):
             # Ejecutamos con la sesión nativa para obtener un resultado iterable limpio
             resultados = session.execute(statement).all()
             
-            print(f"🔍 BUSCANDO ID {id_salida} -> Filas encontradas en BD: {len(resultados)}")
+            #print(f"🔍 BUSCANDO ID {id_salida} -> Filas encontradas en BD: {len(resultados)}")
             return resultados # Retorna una lista de filas con datos planos
             
         except Exception as e:
