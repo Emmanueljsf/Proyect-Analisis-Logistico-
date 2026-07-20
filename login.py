@@ -76,7 +76,7 @@ def Vista_Login(credenciales_primer_uso=None):
                         # 2. Congelamos la ejecución por 1.5 segundos para que dé tiempo de leer
                         time.sleep(1.2)
                         # FUNCION PARA GENERAR DATOS DE PRUEBA
-                        #poblar_sistema_con_data_realista()
+                        poblar_sistema_con_data_realista()
                         # Forzamos la recarga de Streamlit para que dibuje el menú principal del sistema
                         st.rerun()
                 
