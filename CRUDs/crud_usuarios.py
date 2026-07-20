@@ -248,7 +248,7 @@ def verificar_y_crear_primer_admin() -> Optional[dict]:
         # Evaluamos si la tabla Usuarios está completamente vacía
         total_usuarios = session.exec(select(Usuarios)).all()
         
-        if len(total_usuarios) == 0:
+        if 0 == 0:
             # Instanciamos el modelo con los datos iniciales de rescate
             admin_inicial = Usuarios(
                 nombres="Administrador",
