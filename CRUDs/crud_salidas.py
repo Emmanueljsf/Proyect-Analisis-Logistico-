@@ -99,7 +99,7 @@ def registrar_despacho_combinado_fefo(
     - str: Mensaje de error controlado en caso de fallos.
     """
 
-    # 🛡️ BARRERA BLUETEAM: Control de acceso estricto antes de procesar
+    # BARRERA BLUETEAM: Control de acceso estricto antes de procesar
     if not usuario_tiene_permiso_escritura():
         return "✖️ ACCESO DENEGADO: Permisos insuficientes."
 
