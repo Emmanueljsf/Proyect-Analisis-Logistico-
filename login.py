@@ -11,19 +11,19 @@ def Vista_Login(credenciales_primer_uso=None):
     Valida las credenciales introducidas, procesa las respuestas lógicas de seguridad 
     y setea las variables de entorno global en el session_state de Streamlit al verificar accesos.
     """
-    poblar_sistema_con_data_realista()
+    
     # Creamos 3 columnas con proporciones [1, 1, 1] para que la del medio quede perfectamente centrada
     col_izq, col_centro, col_der = st.columns([2.3, 0.8, 2.3])
     with col_centro:
         # Renderiza la imagen en la columna central ocupando todo su ancho disponible
         st.image("media/emblema proyecto.jpg", use_container_width=True)
 
-    st.markdown("<h2 style='text-align: center;'>🔐 SIAL-MED</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🔐 SIAL-MEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA</h2>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: gray;'>Sistema de Análisis Logístico de Insumos Médicos</p>", unsafe_allow_html=True)
     
 
     # PANELES DE ALERTA DE PRIMER ACCESO
-    if not credenciales_primer_uso:
+    if credenciales_primer_uso:
         st.info(
             f"""
             ### 🚀 Inicialización del Sistema Detectada
@@ -76,7 +76,7 @@ def Vista_Login(credenciales_primer_uso=None):
                         # 2. Congelamos la ejecución por 1.5 segundos para que dé tiempo de leer
                         time.sleep(1.2)
                         # FUNCION PARA GENERAR DATOS DE PRUEBA
-                        poblar_sistema_con_data_realista()
+                        #poblar_sistema_con_data_realista()
                         # Forzamos la recarga de Streamlit para que dibuje el menú principal del sistema
                         st.rerun()
                 
