@@ -8,10 +8,23 @@ from usuarios import Vista_gestion_usuarios
 from analisis import Vista_Dashboard_Logistico
 import CRUDs.crud_usuarios as crud_u
 from login import Vista_Login
+from seguridad import es_administrador
 import pandas as pd
 import re
 import json # Para guardar y leer la sesión en un archivo local
 import os # Para verificar si el archivo de sesión existe
+import logging
+
+# Configuración centralizada de logs para todo el proyecto
+# Elimina los handlers existentes para que tu configuración sea la única que funcione
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+
+logging.basicConfig(
+    filename='sialmed_errors.log',
+    level=logging.ERROR,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 # ==============================================================================
 # 1. CONFIGURACIÓN DE PÁGINA E INICIALIZACIÓN
@@ -36,12 +49,25 @@ cargar_css("styles.css")
 # Esta inyección de CSS solo afectará si la pantalla es menor a 600px
 st.markdown("""
     <style>
-        @media (max-width: 600px) {
+        @media (max-width: 650px) {
             :root {
                 --base-font-size: 0.8rem;
             }
             html, body, [class*="css"] {
                 font-size: var(--base-font-size) !important;
+            }
+            
+            /* Esto escala todas las imágenes dentro de la app */
+            img {
+                max-width: 40% !important; /* Ajusta el porcentaje según tu preferencia */
+                height: auto !important;
+                display: block;
+                margin-left: auto;
+                margin-right: auto;
+            } 
+            /* Específico para imágenes en el sidebar si es necesario */
+            [data-testid="stSidebar"] img {
+                max-width: 60% !important;
             }
         }
     </style>
@@ -77,7 +103,7 @@ def cargar_sesion_local():
         except:
             pass # Si el archivo está corrupto o vacío, ignora el fallo y solicita credenciales
 
-# 🔄 CONTROL DE FLUJO CRÍTICO: Sincronización automática de RAM y Disco
+# CONTROL DE FLUJO CRÍTICO: Sincronización automática de RAM y Disco
 if "usuario_autenticado" not in st.session_state:
     cargar_sesion_local() # Intenta levantar los datos del JSON si el usuario recargó la página (F5)
     
@@ -109,9 +135,7 @@ else:
     # ==========================================
     with st.sidebar:
         # LOGO EN MENÚ LATERAL: Muestra el escudo arriba del nombre del sistema
-        c_logo, _ = st.columns([1, 2])
-        with c_logo:
-            st.image("media/emblema proyecto.jpg", use_container_width=True)
+        st.image("media/emblema proyecto.jpg", use_container_width=False, width=150)
             
         st.markdown("<h1 style='color: #ef4444; margin-top: 0;'>SIAL-MED</h1>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 0.8rem;'>SISTEMA INTEGRAL DE LOGÍSTICA MÉDICA</p>", unsafe_allow_html=True)
@@ -130,7 +154,7 @@ else:
             '📤 Salidas'
         ]
         
-        if str(st.session_state["user_rol"]).startswith("Admin"):
+        if es_administrador():
             opciones_menu.append("👥 Gestión de Personal")
             
         menu = st.radio("MÓDULOS DE LOGÍSTICA", opciones_menu)
@@ -184,7 +208,11 @@ else:
         Vista_Dashboard_Logistico()
         
     elif menu == "👥 Gestión de Personal":
-        Vista_gestion_usuarios()
+        # Bloqueo adicional en el enrutador para evitar acceso vía URL directa o errores
+        if es_administrador():
+            Vista_gestion_usuarios()
+        else:
+            st.error("❌ Acceso restringido: Solo administradores pueden gestionar personal.")
 
     
         

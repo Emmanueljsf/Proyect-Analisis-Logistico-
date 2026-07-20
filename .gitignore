@@ -12,7 +12,6 @@ Control_insumos.db-wal
 # Caché de Streamlit y Python
 __pycache__/
 *.pyc
-.streamlit/config.toml
 session_cache.json
 
 # Configuraciones de editor

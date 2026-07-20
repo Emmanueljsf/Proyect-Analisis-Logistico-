@@ -2,11 +2,13 @@ import streamlit as st
 import pandas as pd  
 import CRUDs.crud_lotes as crud_l  
 import CRUDs.crud_insumos as crud_ins  # Importamos para obtener la lista de opciones de insumos
-from insumos1 import usuario_tiene_permiso_escritura
+from seguridad import es_administrador, usuario_tiene_permiso_escritura
 from reportes import generar_reporte_lotes_excel, generar_reporte_lotes_pdf
 from datetime import date, timedelta
 import time
 import math
+import uuid
+import logging
 
 def Vista_Control_Lotes():
     """
@@ -289,5 +291,7 @@ def Vista_Control_Lotes():
         
 
     except Exception as e:
-            print(f"Error crítico en la vista de Lotes: {e}")
-            st.error(f"Error crítico en la vista de Lotes: {e}")
+        # Observabilidad (Trazabilidad Avanzada)
+        correlation_id = str(uuid.uuid4())
+        logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "nombre_modulo"}}')
+        st.error(f"Ocurrió un error inesperado. Reporte el código: [{correlation_id}]")

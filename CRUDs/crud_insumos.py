@@ -1,35 +1,49 @@
+import uuid
+import logging
+import re
+from seguridad import sanitizar_input, usuario_tiene_permiso_escritura
 from sqlmodel import Session, select
 from sqlalchemy.orm import selectinload, joinedload
-from bd.models import engine, Insumos, Usuarios, Lotes, Entradas, Salidas, DetallesSalida, Estado, obtener_sesion_bd
+from bd.models import engine, Insumos, Usuarios, Lotes, Entradas, Salidas, DetallesSalida, Estado, Rol, obtener_sesion_bd
 from datetime import date
 from typing import List
 import math
 
-# ==============================================================================
-# 📦 1. PIPELINES DE PERSISTENCIA Y CONSULTA PARA INSUMOS (CATÁLOGO)
-# ==============================================================================
+
 
 def crear_insumo(nombre: str, ved: str) -> Insumos:
     """
     Inserta un nuevo registro de insumo en la base de datos.
     Fuerza la limpieza de espacios en blanco y retorna la instancia con su ID autogenerado.
     """
+    if not usuario_tiene_permiso_escritura(): return None
     try:
         with obtener_sesion_bd() as session:
-            nuevo = Insumos(nombre=nombre.strip(), clasificacion_ved=ved)
+            # Sanitización de datos de entrada
+            nuevo = Insumos(nombre=sanitizar_input(nombre), clasificacion_ved=ved)
             session.add(nuevo)
             session.commit()
             session.refresh(nuevo) # Sincroniza el objeto local con la clave primaria generada por SQLite
             return nuevo
     except Exception as e:
-            print(f"Error crítico en crear_insumos: {e}")
+            # Blindaje: logueo interno y error genérico
+            c_id = str(uuid.uuid4())
+            logging.error(f"UUID: {c_id} | Error: {e}")
+            return None
 
 
-def obtener_insumos(
-    solo_activos: bool= False, txt_buscar: str= "", opt_estado: str= "ACTIVOS"):
+def obtener_insumos(solo_activos: bool = False, txt_buscar: str = "", opt_estado: str = "ACTIVOS"):
     """
-    Consulta y filtra el catálogo de insumos de la base de datos.
-    Permite la búsqueda por coincidencia de texto y discriminación por estado administrativo.
+    Consulta y filtra el catálogo de insumos de la base de datos utilizando carga selectiva (selectinload).
+    Permite la búsqueda por coincidencia de texto (nombre o clasificación VED) y discriminación por estado.
+
+    Parámetros:
+        solo_activos (bool): Si es True, filtra únicamente insumos con estado activo.
+        txt_buscar (str): Cadena de texto para buscar por nombre o clasificación VED.
+        opt_estado (str): Filtro administrativo ("ACTIVOS", "INACTIVOS", "TODOS").
+
+    Retorna:
+        list: Lista de objetos 'Insumos' encontrados, o una lista vacía si ocurre un error o no hay resultados.
     """
     with Session(engine) as session:
         try:
@@ -53,7 +67,7 @@ def obtener_insumos(
                 else:
                     condiciones.append(Insumos.nombre.like(f"%{txt_buscar}%"))
 
-            # Consulta maestra con tu precarga profunda original
+            # Consulta maestra con precarga profunda
             statement = select(Insumos).where(*condiciones).options(
                 selectinload(Insumos.lotes).options(
                     selectinload(Lotes.entrada),
@@ -61,14 +75,15 @@ def obtener_insumos(
                 )
             )
             
-            # Retorna absolutamente TODOS los registros coincidentes de golpe
             return session.exec(statement).all()
             
         except Exception as e:
-            print(f"🛑 Error crítico en obtener_insumos: {e}")
-            return []
-        
-
+            # Trazabilidad Avanzada: Log estructurado JSON para auditoría técnica
+            correlation_id = str(uuid.uuid4())
+            logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "crud_entradas_paginadas"}}')
+            
+            # Retorno seguro: Se devuelve una lista vacía y 0 registros para mantener la estabilidad del sistema
+            return [], 0
         
 
 def actualizar_catalogo_insumos_masivo(cambios_dict: dict) -> bool:
@@ -85,6 +100,9 @@ def actualizar_catalogo_insumos_masivo(cambios_dict: dict) -> bool:
         Retorna True si la transacción se consolidó exitosamente. 
         En caso de violar reglas lógicas o fallas de BD, ejecuta un rollback y retorna un str con el error.
     """
+    if not usuario_tiene_permiso_escritura():
+        return "✖️ ACCESO DENEGADO: Permisos insuficientes."
+
     with Session(engine) as session:
         try:
             for id_ins_str, campos in cambios_dict.items():
@@ -94,48 +112,48 @@ def actualizar_catalogo_insumos_masivo(cambios_dict: dict) -> bool:
                 if insumo_bd:
                     # Si la celda "ESTADO" fue editada en la grilla
                     if "ESTADO" in campos:
-                        nuevo_estado= (campos["ESTADO"].upper() == "ACTIVO")  # True si es ACTIVO, False si es INACTIVO
-                        insumo_bd.activo= nuevo_estado  # Actualiza el estado del insumo
-                        
+                        nuevo_estado = (campos["ESTADO"].upper() == "ACTIVO") # True si es ACTIVO, False si es INACTIVO
+                        insumo_bd.activo = nuevo_estado
                         # SI EL INSUMO TIENE LOTES ACTIVOS, MANDA MENSAJE DE ERROR
                         for lote in insumo_bd.lotes:
-                            if nuevo_estado==False and lote.activo==True:
-                                raise ValueError("No se puede desactivar el insumo porque tiene lotes asociados")
+                            if not nuevo_estado and lote.activo:
+                                raise ValueError("No se puede desactivar el insumo con lotes activos.")
                             
-                    # Edición de nombre 
                     if "NOMBRE DEL INSUMO" in campos:
-                        insumo_bd.nombre = str(campos["NOMBRE DEL INSUMO"]).strip().upper()
-                        if insumo_bd.nombre==None or insumo_bd.nombre=='':
-                            raise ValueError("​ El nombre de los insumos es un dato obligatorio ")
+                        # Sanitización aplicada a la edición
+                        insumo_bd.nombre = sanitizar_input(campos["NOMBRE DEL INSUMO"])
+                        if not insumo_bd.nombre:
+                            raise ValueError("El nombre es obligatorio.")
 
-                    # Edición de clasificación VED 
                     if "CLASIFICACIÓN VED" in campos:
                         insumo_bd.clasificacion_ved = campos["CLASIFICACIÓN VED"][0]
-                        if insumo_bd.nombre==None or insumo_bd.nombre=='':
-                            raise ValueError("​ La clasificación VED es obligatoria ")
                     
-                    session.add(insumo_bd)  # Registra el insumo modificado en la sesión
+                    session.add(insumo_bd) # Registra el insumo modificado en la sesión
                     
-            session.commit()  # 💾 Guarda los cambios de insumos en un solo viaje
+            session.commit() # Guarda los cambios de insumos en un solo viaje
             return True
         
         except ValueError as e:
             session.rollback()
             return f"✖️ REGLA LOGÍSTICA: {str(e)}"
         except Exception as e:
+            # Generación de UUID para trazabilidad sin exponer código
+            c_id = str(uuid.uuid4())
+            logging.error(f"UUID: {c_id} | Error: {e}")
             session.rollback()
-            return f"✖️ FALLA CRÍTICA EN BASE DE DATOS: {str(e)}"
+            return f"Ocurrió un error inesperado. Reporte el código: {c_id}"
+    
+    
 
 
-# NO ESTÁ EN USO ESTA FUNCIÓN
-def eliminar_insumo(id_insumo: int) -> bool:
-    """Elimina físicamente un insumo del catálogo mediante su Clave Primaria."""
-    with obtener_sesion_bd() as session:
-        insumo = session.get(Insumos, id_insumo)
-        if insumo:
-            session.delete(insumo)
-            session.commit()
-            return True
-        return False
 
 
+
+
+
+"""
+AVANCE 6:
+Barreras de permiso: Verificación mediante usuario_tiene_permiso_escritura().  
+Sanitización: Uso de sanitizar_input() para limpiar entradas.  
+Gestión segura de errores: Uso de uuid y logging para evitar exponer detalles técnicos al usuario final. 
+"""

@@ -1,5 +1,8 @@
+import uuid
+import logging
 from sqlmodel import Session, select, and_, or_, func  # Operaciones de consulta
 from bd.models import Entradas, Lotes, Insumos, Usuarios, DetallesSalida, Estado, engine  # Modelos de datos del SIAL-MED
+from seguridad import sanitizar_input, usuario_tiene_permiso_escritura
 from datetime import date, datetime, time  # Manejo de fechas para vencimientos
 from sqlalchemy.orm import joinedload, make_transient, selectinload
 from sqlalchemy.exc import IntegrityError  # 💡 Importación clave para detectar duplicados
@@ -114,7 +117,11 @@ def obtener_lotes_filtrados(
             return lista_estructurada
 
         except Exception as e:
-            print(f"🛑 Error crítico en obtener_lotes_filtrados_backend: {e}")
+            # Trazabilidad Avanzada: Log estructurado en formato JSON
+            correlation_id = str(uuid.uuid4())
+            logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "crud_lotes_filtrados"}}')
+            
+            # Retorno seguro
             return []
     
 
@@ -133,6 +140,10 @@ def actualizar_registros_lotes_masivo(cambios_dict: dict):
         Retorna True si todas las actualizaciones se consolidaron con éxito en la base de datos.
         Ejecuta un rollback integral y retorna False si ocurre cualquier error de persistencia.
     """
+    # 🛡️ BARRERA BLUETEAM: Control de acceso explícito
+    if not usuario_tiene_permiso_escritura():
+        return "✖️ ACCESO DENEGADO: Permisos insuficientes."
+
     hoy = date.today()
     
     with Session(engine) as session:
@@ -146,7 +157,8 @@ def actualizar_registros_lotes_masivo(cambios_dict: dict):
                 if "CÓDIGO DE LOTE" in modificaciones:
                         lote = session.get(Lotes, entrada.id_lote)
                         if lote:
-                            nuevo_codigo = str(modificaciones["CÓDIGO DE LOTE"])
+                            # 🧼 SANITIZACIÓN: Limpieza de cadena antes de validación
+                            nuevo_codigo = sanitizar_input(str(modificaciones["CÓDIGO DE LOTE"]))
                             mensaje= Lotes.validar_textos_lote(valor= nuevo_codigo, campo='código de lote')
                         # Buscamos si ya existe el mismo código activo para ESTE insumo específico
                         stmt_duplicado = select(Lotes).where(
@@ -186,7 +198,8 @@ def actualizar_registros_lotes_masivo(cambios_dict: dict):
 
                 # 3. Modificación de la ubicación en estanterías
                 if "UBICACIÓN FÍSICA" in modificaciones:
-                    lote.ubicacion_fisica = (modificaciones["UBICACIÓN FÍSICA"])
+                    # 🧼 SANITIZACIÓN: Limpieza de cadena
+                    lote.ubicacion_fisica = sanitizar_input(modificaciones["UBICACIÓN FÍSICA"])
                     mensaje= Lotes.validar_textos_lote(valor= lote.ubicacion_fisica, campo='ubicación')
 
                 # 4. Modificación de la Fecha de Vencimiento
@@ -232,5 +245,7 @@ def actualizar_registros_lotes_masivo(cambios_dict: dict):
             return f"✖️ REGLA LOGÍSTICA: {str(e)}"
         except Exception as e:
             session.rollback()
-            print(f"✖️ Error al intentar actualizar los lotes: {str(e)}")
-            return f"✖️ FALLA CRÍTICA EN BASE DE DATOS: {str(e)}"
+            # TRAZABILIDAD AVANZADA: Log estructurado JSON con UUID para el caos
+            correlation_id = str(uuid.uuid4())
+            logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "actualizar_lotes"}}')
+            return f"✖️ Ocurrió un error inesperado. Reporte el código: [{correlation_id}]"

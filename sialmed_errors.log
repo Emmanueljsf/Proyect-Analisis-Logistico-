@@ -1,0 +1,6 @@
+2026-07-19 02:21:41,931 - ERROR - UUID: 65ae0aae-2995-4291-800e-11c64f81010e | Error: 'str' object has no attribute 'items'
+2026-07-19 02:24:20,273 - ERROR - UUID: e14ec925-d76a-4448-ab96-fa4088d72c4e | Error: 'str' object has no attribute 'items'
+2026-07-19 13:52:58,031 - ERROR - UUID: 683628e4-2bbc-4e8f-bb89-ca84bca174a2 | Error: 'NoneType' object is not subscriptable
+2026-07-19 13:54:58,016 - ERROR - UUID: cd7cac64-c2a1-4888-8aec-8ebed8be79d4 | Error: 'NoneType' object is not subscriptable
+2026-07-19 13:55:53,336 - ERROR - UUID: e9fd2068-a67c-4101-a140-5148f0ed1b52 | Error: 'NoneType' object is not subscriptable
+2026-07-19 14:41:53,237 - ERROR - {"correlation_id": "0380dc63-4e8a-46e0-b78e-2e7d61d7693d", "error": "obtener_entradas_filtradas_paginadas() got an unexpected keyword argument 'u'", "modulo": "nombre_modulo"}

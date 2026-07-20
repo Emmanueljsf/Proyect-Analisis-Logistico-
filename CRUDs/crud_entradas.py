@@ -1,5 +1,8 @@
+import uuid
+import logging
 from sqlmodel import Session, select, and_, or_, func  # Operaciones de consulta
 from bd.models import Entradas, Lotes, Insumos, Usuarios, DetallesSalida, Estado, engine  # Modelos de datos del SIAL-MED
+from seguridad import sanitizar_input, usuario_tiene_permiso_escritura
 from datetime import date, datetime, time  # Manejo de fechas para vencimientos
 from sqlalchemy.orm import joinedload, make_transient, selectinload
 from sqlalchemy.exc import IntegrityError  # 💡 Importación clave para detectar duplicados
@@ -13,8 +16,16 @@ def registrar_ingreso_inventario(id_insumo, codigo_lote, fecha_vencimiento, ubic
     y asienta el acta de entrada en una misma transacción.
     Garantiza la integridad transaccional evitando la duplicidad de lotes activos.
     """
+    # 🛡️ BARRERA BLUETEAM: Bloqueo explícito de manipulación lógica
+    if not usuario_tiene_permiso_escritura():
+        return "✖️ ACCESO DENEGADO: Permisos insuficientes."
+
     with Session(engine) as session:
         try:
+            # SANITIZACIÓN: Limpieza estricta previa a la consulta de duplicados
+            codigo_lote = sanitizar_input(codigo_lote)
+            ubicacion_fisica = sanitizar_input(ubicacion_fisica)
+
             # Buscamos si ya existe el mismo código activo para ESTE insumo específico
             stmt_duplicado = select(Lotes).where(
                 Lotes.id_insumo == id_insumo,
@@ -22,7 +33,6 @@ def registrar_ingreso_inventario(id_insumo, codigo_lote, fecha_vencimiento, ubic
                 Lotes.activo == True
             )
             lote_existente = session.exec(stmt_duplicado).first()
-            
             if lote_existente:
                 raise ValueError("DUPLICADO_ACTIVO") # Retornamos un código de error controlado para la interfaz
             
@@ -45,7 +55,6 @@ def registrar_ingreso_inventario(id_insumo, codigo_lote, fecha_vencimiento, ubic
                 cantidad=cantidad
             )
             session.add(nueva_entrada)
-            
             # 3. Consolidar la transacción y limpiar sesión
             session.commit()
             return True
@@ -54,25 +63,11 @@ def registrar_ingreso_inventario(id_insumo, codigo_lote, fecha_vencimiento, ubic
             return f"✖️ REGLA LOGÍSTICA: {str(e)}"
         except Exception as e:
             session.rollback()
-            print(f"✖️ FALLA CRÍTICA EN BASE DE DATOS: {str(e)}")
-            return f"✖️ FALLA CRÍTICA EN BASE DE DATOS: {str(e)}"
-
-# NO ESTA EN USO
-def obtener_historial_entradas(): 
-    """
-    Retorna tuplas explícitas con todas las relaciones cargadas en caliente antes de cerrar la sesión.
-    """
-    with Session(engine) as session:
-        # Añadimos Usuarios al select y hacemos el join correspondiente usando la llave foránea
-        entradas = (
-            select(Entradas, Lotes, Insumos, Usuarios)
-            .join(Lotes, Entradas.id_lote == Lotes.id_lote)
-            .join(Insumos, Lotes.id_insumo == Insumos.id_insumo)
-            .join(Usuarios, Entradas.id_usuario == Usuarios.id_usuario)  # <- Join directo con el operador/militar
-            .order_by(Entradas.fecha_recepcion.desc())
-        )
-        # Retorna una lista de tuplas con la forma: [(entrada, lote, insumo, usuario), ...]
-        return session.exec(entradas).all()
+            # TRAZABILIDAD AVANZADA
+            correlation_id = str(uuid.uuid4())
+            logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "entradas_crear"}}')
+            return f"✖️ Ocurrió un error inesperado. Reporte el código: [{correlation_id}]"
+    
     
 
 def obtener_entradas_filtradas_paginadas(
@@ -164,15 +159,21 @@ def obtener_entradas_filtradas_paginadas(
             return lista_entradas, total_coincidencias
 
         except Exception as e:
-            print(f"🛑 Error crítico en obtener_entradas_filtradas_paginadas: {e}")
+            # TRAZABILIDAD AVANZADA (JSON log)
+            correlation_id = str(uuid.uuid4())
+            logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "crud_entradas_filtradas"}}')
+            
+            # Retorno seguro
             return [], 0
     
+
 
 def actualizar_registros_entradas_masivo(cambios_dict: dict) -> bool:
     """
     Procesa las modificaciones masivas de la grilla de Entradas (st.data_editor).
     Sanea rigurosamente los tipos de datos (Strings a date) al inicio del ciclo
     para evitar excepciones de Autoflush en SQLite.
+    Aplica barreras de rol (BlueTeam), sanitización de cadenas y logs en formato JSON.
     
     Parámetros: cambios_dict : dict
         Un diccionario mapeado donde cada llave es el ID de la entrada (int) 
@@ -182,6 +183,10 @@ def actualizar_registros_entradas_masivo(cambios_dict: dict) -> bool:
         Retorna True si todas las actualizaciones se guardaron con éxito en SQLite. 
         Realiza un rollback integral y retorna False si ocurre cualquier excepción.
     """
+    # BARRERA BLUETEAM: Control de acceso estricto
+    if not usuario_tiene_permiso_escritura():
+        return False
+
     with Session(engine) as session:
         try:
             for id_entrada, modificaciones in cambios_dict.items():
@@ -242,7 +247,8 @@ def actualizar_registros_entradas_masivo(cambios_dict: dict) -> bool:
                     if "CÓDIGO LOTE" in modificaciones:
                         lote = session.get(Lotes, entrada.id_lote)
                         if lote:
-                            nuevo_codigo = str(modificaciones["CÓDIGO LOTE"])
+                            # 🧼 SANITIZACIÓN: Limpieza de código de lote
+                            nuevo_codigo = sanitizar_input(str(modificaciones["CÓDIGO LOTE"]))
                             mensaje= Lotes.validar_textos_lote(valor= nuevo_codigo, campo='código de lote')
                         # Buscamos si ya existe el mismo código activo para ESTE insumo específico
                         stmt_duplicado = select(Lotes).where(
@@ -255,7 +261,6 @@ def actualizar_registros_entradas_masivo(cambios_dict: dict) -> bool:
                             raise ValueError("DUPLICADO ACTIVO") # Retornamos un código de error controlado para la interfaz
                         lote.codigo_lote= nuevo_codigo
                         session.add(lote)
-                        #print(lote)
             
 
                     if "INSUMO MÉDICO" in modificaciones:
@@ -294,8 +299,11 @@ def actualizar_registros_entradas_masivo(cambios_dict: dict) -> bool:
             session.rollback()
             return f"✖️ REGLA LOGÍSTICA: {str(e)}"
         except Exception as e:
+            # TRAZABILIDAD AVANZADA: Registro estructurado en JSON con Correlation ID
+            correlation_id = str(uuid.uuid4())
+            logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "editar entradas"}}')
             session.rollback()
-            print(f"FALLA CRÍTICA EN BASE DE DATOS: {str(e)}")
+            return f"✖️ Ocurrió un error inesperado. Reporte el código: [{correlation_id}]"
 
 
 
@@ -311,14 +319,16 @@ def anular_entrada_y_lote(id_entrada: int) -> tuple:
         1. bool: True si la operación fue exitosa, False si fue bloqueada o falló.
         2. str: Mensaje detallado del resultado o motivo del bloqueo para mostrar en la interfaz.
     """
+    # BARRERA BLUETEAM: Control de acceso explícito
+    if not usuario_tiene_permiso_escritura():
+        return False, "✖️ ACCESO DENEGADO: Permisos insuficientes."
+
     # Abrimos una sesión segura con el motor de SQLModel
     with Session(engine) as session:
-        # Intentamos localizar la entrada mediante su ID único
         entrada = session.get(Entradas, id_entrada)
         if not entrada:
             return False, "La entrada especificada no existe en el sistema."
         
-        # Validación preventiva: No se puede anular lo que ya está muerto
         if entrada.estado == "ANULADO":
             return False, "Esta entrada ya se encuentra archivada como ANULADA."
             
@@ -326,35 +336,34 @@ def anular_entrada_y_lote(id_entrada: int) -> tuple:
         lote = session.get(Lotes, entrada.id_lote)
         if not lote:
             return False, "Error de integridad: No se encontró el lote asociado a esta entrada."
-            
+        
         # REGLA OPERATIVA CRÍTICA FIXED: Evaluamos usando la cantidad de la entrada
         # Si el stock disponible actual es menor a lo que entró, significa que ya se despachó
         if lote.stock_disponible < entrada.cantidad:  
             unidades_despachadas = entrada.cantidad - lote.stock_disponible
             return False, (
                 f"OPERACIÓN BLOQUEADA: No se puede anular esta entrada. "
-                f"Ya se han despachado {unidades_despachadas} unidades del lote "
-                f"'{lote.codigo_lote}' en órdenes médicas activas."
+                f"Ya se han despachado {unidades_despachadas} unidades."
             )
             
         try:
-            # 1. PASO ALFA: Cambiar el estado de la Entrada a ANULADO
-            # Esto la mantiene en el historial para control de la contraloría militar
+            # 1 Cambiar el estado de la Entrada a ANULADO
             entrada.estado = "ANULADO"
-            session.add(entrada) # Marcamos la entrada para actualización
+            session.add(entrada) 
             
-            # 2. PASO BETA: Desactivación logística del Lote relacionado
-            lote.activo = False          # Eliminación lógica (ya no saldrá en búsquedas de despacho)
+            # 2 Desactivación logística del Lote relacionado
+            lote.activo = False          
             lote.motivo_desactivacion = "Anulación de la entrada" 
-            # Como tu property en models.py depende de entrada.cantidad, forzamos el estado del lote aquí si es necesario
-            session.add(lote)            # Marcamos el lote para actualización
+            session.add(lote)      # Marcamos el lote para actualización
             
-            # 3. PASO OMEGA: Consolidar la transacción en el archivo SQLite
+            # 3 Consolidar la transacción
             session.commit()
             return True, f"ÉXITO: Entrada y lote '{lote.codigo_lote}' anulados de forma conforme."
             
         except Exception as e:
-            # Si algo falla a mitad de camino, restauramos todo al estado anterior (Rollback)
             session.rollback()
-            print(f"Error al intentar anular la entrada y lote: {str(e)}")
-            return False, f"FALLO CRÍTICO DE BASE DE DATOS: {str(e)}"
+            # TRAZABILIDAD AVANZADA: Log estructurado JSON con UUID
+            correlation_id = str(uuid.uuid4())
+            logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "anular_entrada"}}')
+            # Retorno seguro: Oculta el detalle técnico (ruta/archivo) del usuario
+            return False, f"FALLO CRÍTICO: Ocurrió un error inesperado. Reporte el código: [{correlation_id}]"

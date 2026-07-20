@@ -2,12 +2,14 @@ import streamlit as st
 import pandas as pd  
 import CRUDs.crud_entradas as crud_le  
 import CRUDs.crud_insumos as crud_i  # 💡 Importamos para alimentar las opciones de insumos en la celda
-from insumos1 import usuario_tiene_permiso_escritura
+from seguridad import es_administrador, usuario_tiene_permiso_escritura
 from bd.models import Rol
 from reportes import generar_reporte_entradas_excel, generar_reporte_entradas_pdf
 from datetime import date, timedelta
 import time
 import math
+import uuid
+import logging
 
 @st.dialog("📥 Registrar Entrada de Cargamento")
 def modal_registro_entrada():
@@ -16,58 +18,72 @@ def modal_registro_entrada():
     de las actas de ingreso y las propiedades del lote del fabricante.
     """
     try:
-        st.markdown("<p style='color:gray;'>Ingrese los datos del acta de recepción y el lote del fabricante.</p>", unsafe_allow_html=True)
-        
         if not usuario_tiene_permiso_escritura():
-            st.error("🛑 Acceso denegado. No tiene permisos para realizar esta acción.")
-            return
-
-        lista_insumos = crud_i.obtener_insumos(solo_activos=True)
-        if not lista_insumos:
-            st.error("⚠️ No hay insumos registrados en el catálogo base.")
-            return
-
-        dict_insumos = {f"{i.nombre} [{i.clasificacion_ved}]".upper(): i.id_insumo for i in lista_insumos}
-        insumo_seleccionado = st.selectbox("Seleccione el Insumo Médico *", list(dict_insumos.keys()))
-        id_insumo_target = dict_insumos[insumo_seleccionado]
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            txt_lote = st.text_input("Código de Lote *", placeholder="Ej: LOT-2026A")
-            f_pedido = st.date_input("Fecha de Pedido *", max_value=date.today(), format="DD/MM/YYYY")
-            f_vence = st.date_input("Fecha de Vencimiento del Lote *", min_value=date.today()+timedelta(days=1), format="DD/MM/YYYY")
-        with c2:
-            txt_ubica = st.text_input("Ubicación Física *", placeholder="Ej: Estante B")
-            num_cantidad = st.number_input("Cantidad Recibida *", min_value=1, step=1, value=1)
+            st.error("❌ Acceso restringido: No tienes el permiso para acceder a este formulario.")
+        else:
+            st.markdown("<p style='color:gray;'>Ingrese los datos del acta de recepción y el lote del fabricante.</p>", unsafe_allow_html=True)
             
-        st.divider()
-        c_btn1, c_btn2 = st.columns(2)
-        with c_btn1:
-            if st.button("GUARDAR INGRESO", use_container_width=True, type="primary"):
-                if not txt_lote.strip() or not txt_ubica.strip():
-                    st.warning("⚠️ Campos marcados con (*) son obligatorios.")
-                else:
-                    exito = crud_le.registrar_ingreso_inventario(
-                        id_insumo=id_insumo_target,
-                        codigo_lote=txt_lote,
-                        fecha_vencimiento=f_vence,
-                        ubicacion_fisica=txt_ubica,
-                        cantidad=num_cantidad,
-                        id_usuario=st.session_state.get("user_id", 1), 
-                        fecha_pedido=f_pedido
-                    )
-                    if exito==True:
-                        st.success("✔️ Entrada y lote registrados exitosamente.")
-                        time.sleep(1.5)
-                        st.rerun()
+            if not usuario_tiene_permiso_escritura():
+                st.error("🛑 Acceso denegado. No tiene permisos para realizar esta acción.")
+                return
+
+            lista_insumos = crud_i.obtener_insumos(solo_activos=True)
+            if not lista_insumos:
+                st.error("⚠️ No hay insumos registrados en el catálogo base.")
+                return
+
+            dict_insumos = {f"{i.nombre} [{i.clasificacion_ved}]".upper(): i.id_insumo for i in lista_insumos}
+            insumo_seleccionado = st.selectbox("Seleccione el Insumo Médico *", list(dict_insumos.keys()))
+            id_insumo_target = dict_insumos[insumo_seleccionado]
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                txt_lote = st.text_input("Código de Lote *", placeholder="Ej: LOT-2026A")
+                f_pedido = st.date_input("Fecha de Pedido *", max_value=date.today(), format="DD/MM/YYYY")
+                f_vence = st.date_input("Fecha de Vencimiento del Lote *", min_value=date.today()+timedelta(days=1), format="DD/MM/YYYY")
+            with c2:
+                txt_ubica = st.text_input("Ubicación Física *", placeholder="Ej: Estante B")
+                num_cantidad = st.number_input("Cantidad Recibida *", min_value=1, step=1, value=1)
+                
+            st.divider()
+            c_btn1, c_btn2 = st.columns(2)
+            with c_btn1:
+                if st.button("GUARDAR INGRESO", use_container_width=True, type="primary"):
+                    if not txt_lote.strip() or not txt_ubica.strip():
+                        st.warning("⚠️ Campos marcados con (*) son obligatorios.")
                     else:
-                        st.error(exito)
-        with c_btn2:
-            if st.button("CANCELAR", use_container_width=True): 
-                st.rerun()
+                        try:
+                            exito = crud_le.registrar_ingreso_inventario(
+                                id_insumo=id_insumo_target,
+                                codigo_lote=txt_lote,
+                                fecha_vencimiento=f_vence,
+                                ubicacion_fisica=txt_ubica,
+                                cantidad=num_cantidad,
+                                id_usuario=st.session_state.get("user_id", 1), 
+                                fecha_pedido=f_pedido
+                            )
+                            if exito==True:
+                                st.success("✔️ Entrada y lote registrados exitosamente.")
+                                time.sleep(1.5)
+                                st.rerun()
+                            else:
+                                st.error(exito)
+                        
+                        except Exception as e:
+                            # TRAZABILIDAD AVANZADA: Log estructurado ante fallos en la persistencia
+                            correlation_id = str(uuid.uuid4())
+                            logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "modal_registro_entrada"}}')
+                            st.error(f"Error al registrar la entrada en la base de datos. Reporte el código: [{correlation_id}]")
+            with c_btn2:
+                if st.button("CANCELAR", use_container_width=True): 
+                    st.rerun()
 
     except Exception as e:
-            print(f"🛑 Error crítico en el formulario de registro de entradas: {e}")
+        # CAPA EXTERNA DE PROTECCIÓN PARA EL MODAL
+        correlation_id = str(uuid.uuid4())
+        logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "modal_registro_entrada_global"}}')
+        st.error(f"Error fatal en el formulario. Reporte el código: [{correlation_id}]")
+
 
 
 def Vista_Entradas():
@@ -306,6 +322,7 @@ def Vista_Entradas():
                 st.rerun()
     
     except Exception as e:
-            st.error(f"Error crítico en la vista de entradas: {e}")
-            print(f"Error crítico en la vista de entradas: {e}")
-            return [], 0
+        # Observabilidad (Trazabilidad Avanzada)
+        correlation_id = str(uuid.uuid4())
+        logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "vista de entradas"}}')
+        st.error(f"Ocurrió un error inesperado. Reporte el código: [{correlation_id}]")

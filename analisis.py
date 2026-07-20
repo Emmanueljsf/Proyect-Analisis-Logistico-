@@ -1,4 +1,6 @@
 
+import uuid
+import logging
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -30,10 +32,16 @@ def Vista_Dashboard_Logistico():
         )
 
         # --------------------------------------------------------------------------
-        # ⚡ EXTRACCIÓN DE DATOS PROCESADOS POR EL BACKEND
+        # EXTRACCIÓN DE DATOS PROCESADOS POR EL BACKEND
         # --------------------------------------------------------------------------
-        with st.spinner("Ejecutando algoritmos logísticos en tiempo real..."):
+        try:
             df_rop, df_caducidad = calcular_metricas_analiticas_sialmed()
+        except Exception as e:
+            # 🔍 Log estructurado para el Avance #6
+            correlation_id = str(uuid.uuid4())
+            logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "analisis_logistico_backend"}}')
+            st.error(f"Error procesando métricas analíticas. Reporte el código: [{correlation_id}]")
+            return # Detiene la ejecución para no mostrar gráficos vacíos o corruptos
 
         # CONTROL DE SEGURIDAD EXPLICITO
         if df_rop.empty or "semaforo" not in df_rop.columns:
@@ -252,6 +260,7 @@ def Vista_Dashboard_Logistico():
             
 
 
+
         # ==========================================================================
         # PESTAÑA 2: GESTIÓN PREVENTIVA DE CADUCIDAD (GRÁFICOS VERTICALES)
         # ==========================================================================
@@ -261,9 +270,8 @@ def Vista_Dashboard_Logistico():
                 "Alerta de Merma: Se dispara si la velocidad de consumo (CPD) proyecta que "
                 "el stock durará más días que el tiempo que le queda de vida física al lote."
             )
-
             # --------------------------------------------------------------------------
-            # 📱 FILTRADO LOGÍSTICO Y MÉTRICAS DE CADUCIDAD
+            # FILTRADO LOGÍSTICO Y MÉTRICAS DE CADUCIDAD
             # --------------------------------------------------------------------------
             # 1. Filtro para Gráfico 1: Lotes que NO están seguros (Solo alertas, mermas o vencidos)
             df_lotes_alerta = df_caducidad[
@@ -364,7 +372,7 @@ def Vista_Dashboard_Logistico():
                     st.success("🎉 ¡Excelente! No se proyectan pérdidas materiales bajo la tasa de consumo actual.")
 
             # --------------------------------------------------------------------------
-            # 🎯 BANNER INFORMATIVO DE COBERTURA
+            # BANNER INFORMATIVO DE COBERTURA
             # --------------------------------------------------------------------------
             st.warning(
                 f"⚠️ **Alerta de Caducidad:** El **{porcentaje_comprometido:.1f}%** de los lotes activos "
@@ -453,5 +461,7 @@ def Vista_Dashboard_Logistico():
             )
 
     except Exception as e:
-        st.error(f"Error en la vista de análisis logístico: {e}")
-        st.stop()
+        # Error genérico para la vista completa
+        correlation_id = str(uuid.uuid4())
+        logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "vista_dashboard"}}')
+        st.error(f"Error crítico en el dashboard. Reporte el código: [{correlation_id}]")

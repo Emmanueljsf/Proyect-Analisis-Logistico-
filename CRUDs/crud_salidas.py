@@ -1,21 +1,34 @@
+import uuid
+import logging
 from sqlmodel import Session, select, and_, or_, func
 from bd.models import Salidas, DetallesSalida, Lotes, Insumos, Usuarios, Estado, engine
+from seguridad import sanitizar_input, usuario_tiene_permiso_escritura
 from datetime import datetime, date, time
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload, joinedload
 from typing import Optional, List
+from sqlalchemy import or_, and_, func
+
 
 def obtener_lotes_disponibles_fefo(
     id_insumo: int, 
     razon_salida: str = "Consumo Clínico",
-    session_externa: Optional[Session] = None  # 👈 1. Agregamos el parámetro opcional para las pruebas
+    session_externa: Optional[Session] = None  # 1. Agregamos el parámetro opcional para las pruebas
 ):
     """
-    Busca y ordena los lotes de un insumo priorizando su fecha de vencimiento (First Expired, First Out).
-    Soporta inyección de sesión externa para la ejecución aislada de pruebas unitarias.
+    Busca y ordena los lotes de un insumo priorizando su fecha de vencimiento (FEFO).
+    Implementa logs estructurados para trazabilidad y protección de datos en caso de error.
+
+    Parámetros:
+        id_insumo (int): Identificador del insumo a consultar.
+        razon_salida (str): Razón del movimiento (define reglas de filtrado).
+        session_externa (Optional[Session]): Sesión opcional para inyección en pruebas unitarias.
+
+    Retorna:
+        list: Lista ordenada de lotes con stock disponible, o una lista vacía en caso de error.
     """
     try:
-        # 👈 2. Si viene sesión de las pruebas, usamos esa. Si no, abrimos la local de producción.
+        # <- 2. Si viene sesión de las pruebas, usamos esa. Si no, abrimos la local de producción.
         session = session_externa if session_externa is not None else Session(engine)
         
         # Encapsulamos la lógica para poder reutilizar la sesión correctamente
@@ -32,7 +45,7 @@ def obtener_lotes_disponibles_fefo(
             )
         )
         
-        # 🔀 CORTAFUEGOS DE INTEGRIDAD SEGÚN RAZÓN LOGÍSTICA
+        # CORTAFUEGOS DE INTEGRIDAD SEGÚN RAZÓN LOGÍSTICA
         if razon_salida == "Perdida por Caducidad":
             # REGLA: Si es perdida, el sistema SOLO permite aislar y ver lotes VENCIDOS
             statement = statement.where(Lotes.fecha_vencimiento <= hoy)
@@ -49,7 +62,11 @@ def obtener_lotes_disponibles_fefo(
         return sorted(lotes_con_existencias, key=lambda x: x.fecha_vencimiento if x.fecha_vencimiento else date.max)
             
     except Exception as e:
-        print(f"🛑 Error crítico en obtener lotes disponibles fefo: {e}")
+        # Trazabilidad Avanzada: Log estructurado en formato JSON
+        correlation_id = str(uuid.uuid4())
+        logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "obtener_lotes_fefo"}}')
+        
+        # Respuesta segura para no romper el flujo de la UI
         return []
 
 
@@ -64,13 +81,36 @@ def registrar_despacho_combinado_fefo(
 ):
     """
     Procesa la salida de insumos distribuyendo la cantidad solicitada entre múltiples lotes bajo la doctrina FEFO.
-    Asienta la orden de salida y descuenta los inventarios de forma atómica en una única transacción.
+    
+    Esta función crea una cabecera de salida y genera automáticamente los registros de detalle,
+    descontando el inventario de forma atómica y priorizando los lotes con vencimiento más próximo.
+
+    Parámetros:
+    - orden_salida (str): Identificador único de la orden médica o logística.
+    - paciente_destino (str): Nombre del paciente o área destino.
+    - razon_salida (str): Motivo de la salida (ej. 'Consumo Clínico').
+    - id_usuario (int): ID del usuario que registra el despacho.
+    - lista_pedidos (list): Lista de diccionarios con la estructura: 
+      {'id_insumo': int, 'cantidad': int, 'nombre_insumo': str, ...}
+    - session_externa (Optional[Session]): Sesión de base de datos para pruebas unitarias.
+
+    Retorna:
+    - dict: Contiene 'status' (bool) y 'despacho' (hoja de ruta) si es exitoso.
+    - str: Mensaje de error controlado en caso de fallos.
     """
+
+    # 🛡️ BARRERA BLUETEAM: Control de acceso estricto antes de procesar
+    if not usuario_tiene_permiso_escritura():
+        return "✖️ ACCESO DENEGADO: Permisos insuficientes."
 
     # Si viene sesión externa (pruebas), la usamos. Si no, creamos una local.
     session = session_externa if session_externa is not None else Session(engine)
 
     try:
+        # 🧼 SANITIZACIÓN: Limpieza de entradas para evitar inyecciones
+        orden_salida = sanitizar_input(orden_salida)
+        paciente_destino = sanitizar_input(paciente_destino)
+
         # Buscamos si ya existe esa misma orden en estado VALIDO
         stmt_duplicado = select(Salidas).where(
             Salidas.orden_salida == orden_salida,
@@ -167,9 +207,8 @@ def registrar_despacho_combinado_fefo(
     except ValueError as e:
         # 💡 CORRECCIÓN CRUCIAL DE FLUJO LOGICIAL:
         if session_externa is not None:
-            raise e  # Si estamos en pruebas, lanzamos el error inmediatamente a pytest y salimos
+            raise e  # Si estamos en pruebas, lanzamos el error inmediatamente
         
-        # Si es producción (Streamlit), ejecutamos el rollback local y retornamos la alerta en texto
         session.rollback()
         return str(e)
         
@@ -177,36 +216,19 @@ def registrar_despacho_combinado_fefo(
         if session_externa is not None:
             raise e
         session.rollback()
-        print(f"🛑 ERROR BACKEND: {str(e)}")
-        return f"🛑 ERROR BACKEND: {str(e)}"
+        # 🔍 TRAZABILIDAD AVANZADA: Log seguro con UUID
+        correlation_id = str(uuid.uuid4())
+        logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "salidas_despacho"}}')
+        return f"🛑 Ocurrió un error inesperado. Reporte el código: [{correlation_id}]"
         
     finally:
         if session_externa is None:
             session.close()
         
 
-def obtener_historico_salidas_completo(): # NO ESTÁ EN USO
-    """
-    [READ] Carga el histórico maestro de movimientos de salida con carga eficiente
-    de relaciones para evitar el problema de consultas N+1.
-    """
-    with Session(engine) as session:
-        statement = (
-            select(Salidas)
-            .options(
-                joinedload(Salidas.usuario),
-                joinedload(Salidas.detalles).joinedload(DetallesSalida.lote).joinedload(Lotes.insumo)
-            )
-            .order_by(Salidas.fecha.desc())
-        )
-        
-        # DESDUPLICACIÓN EN MEMORIA: Evita la multiplicación de filas por el JOIN uno-a-muchos
-        result = session.exec(statement)
-        return result.unique().all()
     
 
-from sqlalchemy import or_, and_, func
-from sqlalchemy.orm import joinedload
+
 
 def obtener_salidas_filtradas_paginadas(
     txt_universal: str = "",
@@ -296,13 +318,17 @@ def obtener_salidas_filtradas_paginadas(
             return resultados, total_coincidencias
 
         except Exception as e:
-            print(f"Error crítico en obtener_salidas_filtradas_paginadas: {e}")
+            # Trazabilidad Avanzada: Log estructurado en formato JSON
+            correlation_id = str(uuid.uuid4())
+            logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "crud_salidas_paginadas"}}')
             return [], 0
 
 
 def obtener_detalles_insumos_por_acta(id_salida: int):
     """
     Recupera los insumos y lotes específicos que componen una orden de salida determinada.
+    Parámetro: id_salida (int): Identificador único de la salida.
+    Retorna: list: Lista de tuplas con detalles de insumos, o una lista vacía en caso de error.
     """
     with Session(engine) as session:
         try:
@@ -325,29 +351,39 @@ def obtener_detalles_insumos_por_acta(id_salida: int):
             resultados = session.execute(statement).all()
             
             print(f"🔍 BUSCANDO ID {id_salida} -> Filas encontradas en BD: {len(resultados)}")
-            print(resultados)
             return resultados # Retorna una lista de filas con datos planos
             
         except Exception as e:
-            print(f"Error crítico en obtener_detalles_insumos_por_acta: {e}")
+            # Trazabilidad Avanzada: Log estructurado en formato JSON
+            correlation_id = str(uuid.uuid4())
+            logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "crud_salidas_detalles"}}')
             return []
+
 
 
 def actualizar_registros_salidas_masivo(cambios_cabecera: dict, cambios_detalle: dict, df_maestro, df_detalle):
     """
-    Actualiza de forma masiva múltiples actas de entrada en una única transacción atómica.
-    Parámetros: cambios_dict : dict
-        Un diccionario mapeado donde las llaves son los IDs de las entradas (int) 
-        y los valores son diccionarios con los campos modificados (ej. {'cantidad': 50}).
+    Actualiza de forma masiva múltiples actas de salida y sus detalles en una única transacción atómica.
+    Aplica barreras de rol (BlueTeam), sanitización de cadenas y logs en formato JSON.
 
-    Retorna: bool
-        True si todas las actualizaciones se consolidaron con éxito en SQLite. 
-        Realiza un rollback completo y retorna False o un mensaje si ocurre un error.
+    Parámetros:
+    - cambios_cabecera (dict): Diccionario con cambios en la cabecera (maestro).
+    - cambios_detalle (dict): Diccionario con cambios en las líneas de detalle.
+    - df_maestro (DataFrame): Referencia visual de la tabla de salidas.
+    - df_detalle (DataFrame): Referencia visual de la tabla de detalles.
+
+    Retorna:
+    - bool: True si la transacción fue exitosa.
+    - str: Mensaje de error controlado en caso de fallo.
     """
+    # BARRERA BLUETEAM: Control de acceso estricto
+    if not usuario_tiene_permiso_escritura():
+        return "✖️ ACCESO DENEGADO: Permisos insuficientes."
+
     with Session(engine) as session:
         try:
             # ==================================================================
-            # 1️⃣ FASE MAESTRA: Cambios en la cabecera (Salidas)
+            # 1️ FASE MAESTRA: Cambios en la cabecera (Salidas)
             # ==================================================================
             for idx_m_str, modificaciones in cambios_cabecera.items():
                 idx_m = int(idx_m_str)
@@ -359,18 +395,19 @@ def actualizar_registros_salidas_masivo(cambios_cabecera: dict, cambios_detalle:
 
                 # Edición directa de campos de texto 
                 if "ORDEN DE SALIDA" in modificaciones:
-                    salida_maestra.orden_salida = (modificaciones["ORDEN DE SALIDA"])
-                    resultado= Salidas.validar_datos_salida(valor= modificaciones["ORDEN DE SALIDA"], info='Orden de salida')
+                    # SANITIZACIÓN: Limpieza de entrada
+                    salida_maestra.orden_salida = sanitizar_input(modificaciones["ORDEN DE SALIDA"])
+                    resultado = Salidas.validar_datos_salida(valor=salida_maestra.orden_salida, info='Orden de salida')
 
                 if "DESTINO / PACIENTE" in modificaciones:
-                    print('perra', salida_maestra, modificaciones)
-                    salida_maestra.paciente_destino = (modificaciones["DESTINO / PACIENTE"])
-                    resultado= Salidas.validar_datos_salida(valor= modificaciones["DESTINO / PACIENTE"], info='Destino/Paciente')
+                    # SANITIZACIÓN: Limpieza de entrada
+                    salida_maestra.paciente_destino = sanitizar_input(modificaciones["DESTINO / PACIENTE"])
+                    resultado = Salidas.validar_datos_salida(valor=salida_maestra.paciente_destino, info='Destino/Paciente')
 
-                # 🔄 Captura del estado modificado en la grilla maestra
+                # Captura del estado modificado en la grilla maestra
                 nuevo_estado_str = modificaciones.get("ESTADO") or modificaciones.get("estado")
                 
-                # 🎯 EL FILTRO CRÍTICO: Solo evaluamos la lógica si el estado REALMENTE cambió (No es None)
+                # EL FILTRO CRÍTICO: Solo evaluamos la lógica si el estado REALMENTE cambió
                 if nuevo_estado_str is not None:
                     nuevo_estado_str = nuevo_estado_str.upper()
                     
@@ -414,7 +451,7 @@ def actualizar_registros_salidas_masivo(cambios_cabecera: dict, cambios_detalle:
                 session.add(salida_maestra)
 
             # ==================================================================
-            # 2️⃣ FASE DETALLE: Cambios en las cantidades (DetallesSalida)
+            # 2️ FASE DETALLE: Cambios en las cantidades (DetallesSalida)
             # ==================================================================
             for idx_d_str, modificaciones in cambios_detalle.items():
                 idx_d = int(idx_d_str)
@@ -434,7 +471,7 @@ def actualizar_registros_salidas_masivo(cambios_cabecera: dict, cambios_detalle:
                 # (CASO C: MODIFICACIÓN MANUAL DE CANTIDADES)
                 if "CANTIDAD" in modificaciones:
                     nueva_cantidad = modificaciones["CANTIDAD"]
-                    resultado= DetallesSalida.validar_cantidad_salida(valor= nueva_cantidad)
+                    resultado = DetallesSalida.validar_cantidad_salida(valor=nueva_cantidad)
                     lote = session.get(Lotes, detalle.id_lote)
                     
                     diferencia = nueva_cantidad - detalle.cantidad
@@ -462,11 +499,13 @@ def actualizar_registros_salidas_masivo(cambios_cabecera: dict, cambios_detalle:
             
         except IntegrityError:
             session.rollback()
-            return "⚠️ ERROR DE RESTRICCIÓN: La de Orden de Salida ya se encuentra registrado y activo."
+            return "⚠️ ERROR DE RESTRICCIÓN: La orden de salida ya se encuentra registrada."
         except ValueError as e:
             session.rollback()
             return f"⚠️ REGLA LOGÍSTICA: {str(e)}"
         except Exception as e:
             session.rollback()
-            print(f"FALLA EN BASE DE DATOS: {str(e)}")
-            return 'la operación falló de manera inesperada'
+            # TRAZABILIDAD AVANZADA: Log seguro con UUID para auditoría
+            correlation_id = str(uuid.uuid4())
+            logging.error(f'{{"correlation_id": "{correlation_id}", "error": "{str(e)}", "modulo": "actualizar_salidas_masivo"}}')
+            return f"✖️ Ocurrió un error inesperado. Reporte el código: [{correlation_id}]"
