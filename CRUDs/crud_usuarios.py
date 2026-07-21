@@ -254,13 +254,13 @@ def verificar_y_crear_primer_admin() -> Optional[dict]:
                 nombres="Administrador",
                 apellidos="De Control",
                 username="admin",
-                password="admin123", # 'crear_usuario' se encargará de encriptarla en SHA-256[cite: 10]
+                password="primerlogin", # 'crear_usuario' se encargará de encriptarla en SHA-256[cite: 10]
                 rol=Rol.Administrador,
                 activo=True
             )
             # Reutilizamos tu función del CRUD con sus respectivas validaciones[cite: 10]
             if crear_usuario(admin_inicial):
-                return {"username": "admin", "password": "admin123"}
+                return {"username": "admin", "password": "primerlogin"}
         
         with Session(engine) as session:
             # Consultamos todos los usuarios actuales
@@ -268,7 +268,7 @@ def verificar_y_crear_primer_admin() -> Optional[dict]:
             
             # Si hay exactamente un usuario y su username es 'admin', el peligro persiste
             if len(usuarios) == 1 and usuarios[0].username == "admin":
-                return {"username": usuarios[0].username, "password": 'admin123'}
+                return {"username": usuarios[0].username, "password": 'primerlogin'}
                 
     return None
 
