@@ -3,7 +3,7 @@ import pandas as pd
 import CRUDs.crud_entradas as crud_le  
 import CRUDs.crud_insumos as crud_i  # 💡 Importamos para alimentar las opciones de insumos en la celda
 from seguridad import es_administrador, usuario_tiene_permiso_escritura
-from bd.models import Rol
+from models import Rol
 from reportes import generar_reporte_entradas_excel, generar_reporte_entradas_pdf
 from datetime import date, timedelta
 import time

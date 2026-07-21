@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta
 import pytest
 from sqlmodel import Session
-from bd.models import Insumos, Lotes, Entradas, Usuarios, Rol  # Asegúrate de verificar cómo se llama el rol en models.py
+from models import Insumos, Lotes, Entradas, Usuarios, Rol  # Asegúrate de verificar cómo se llama el rol en models.py
 from CRUDs.crud_salidas import registrar_despacho_combinado_fefo # 
 import hashlib
 from CRUDs.crud_usuarios import autenticar_usuario

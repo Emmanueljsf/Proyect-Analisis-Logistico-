@@ -1,7 +1,7 @@
 import streamlit as st
 import CRUDs.crud_usuarios as crud_u # Conexión directa con las validaciones del backend
 from seguridad import es_administrador
-from bd.models import Usuarios, Rol # Estructuras de datos nativas de SIAL-MED
+from models import Usuarios, Rol # Estructuras de datos nativas de SIAL-MED
 import pandas as pd
 import time
 import uuid

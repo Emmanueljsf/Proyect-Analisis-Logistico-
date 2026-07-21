@@ -3,7 +3,7 @@ import pandas as pd
 import CRUDs.crud_salidas as crud_salidas
 from registro_salidas import modal_registro_salida_fefo
 from reportes_salidas import generar_reporte_salidas_excel, generar_reporte_salidas_pdf
-from bd.models import Rol
+from models import Rol
 from seguridad import es_administrador, usuario_tiene_permiso_escritura
 from datetime import date, timedelta
 import time

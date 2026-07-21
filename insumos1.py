@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd  # Manejo matricial a alta velocidad
 import CRUDs.crud_insumos as crud_insumos  # Controlador backend SQL
-from bd.models import Rol
+from models import Rol
 import time  # Control de pausas para confirmaciones visuales
 import math
 from datetime import datetime

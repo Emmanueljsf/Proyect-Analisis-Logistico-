@@ -1,6 +1,6 @@
 import re
 import streamlit as st
-from bd.models import engine, Rol 
+from models import engine, Rol 
 
 # --- Funciones auxiliares de seguridad ---
 
