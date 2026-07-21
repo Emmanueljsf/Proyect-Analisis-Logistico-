@@ -215,4 +215,50 @@ else:
             st.error("❌ Acceso restringido: Solo administradores pueden gestionar personal.")
 
     
-        
+# 3. CONSULTA AL BACKEND (Procesa el filtrado en una sola línea)
+usuarios_filtrados = crud_u.obtener_usuarios_filtrados(
+    txt_buscar='',
+    rol_buscado='',
+    estado_buscado=''
+)
+
+# 4. TÍTULO ACTUALIZADO SEGÚN BACKEND
+st.markdown(
+    f"<h2 style='margin-bottom: 0;'>👥 Control de Personal ({len(usuarios_filtrados)} registros filtrados)</h2>", 
+    unsafe_allow_html=True
+)
+
+
+
+
+
+# 5. RENDERIZADO RESPONSIVE CON DATAFRAME SELECCIONABLE
+if not usuarios_filtrados:
+    st.info("No se encontraron usuarios que coincidan con los parámetros.")
+else:
+    st.markdown("Seleccione un usuario para editar.")
+
+    # Preparamos los datos para el DataFrame
+    data = [{
+        "NOMBRES": u.nombres,
+        'APELLIDOS': u.apellidos,
+        "USERNAME": u.username,
+        "ROL": u.rol.value,
+        "ESTADO": "ACTIVO" if u.activo else "INACTIVO",
+        "ID_REF": u.id_usuario # ID oculto para referencia interna
+    } for u in usuarios_filtrados]
+
+    df = pd.DataFrame(data)
+
+    # Configuramos la tabla
+    event = st.dataframe(
+        df,
+        column_config={
+            "ID_REF": None, # Ocultamos la columna del ID
+            "ESTADO": st.column_config.TextColumn("ESTADO", help="Estado actual en sistema"),
+        },
+        use_container_width=True,
+        hide_index=True,
+        selection_mode="single-row",
+        on_select="rerun"
+    )
