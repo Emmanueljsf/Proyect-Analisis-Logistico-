@@ -217,9 +217,9 @@ else:
     
 # 3. CONSULTA AL BACKEND (Procesa el filtrado en una sola línea)
 usuarios_filtrados = crud_u.obtener_usuarios_filtrados(
-    txt_buscar='',
-    rol_buscado='',
-    estado_buscado=''
+    txt_buscar=None,
+    rol_buscado='TODOS',
+    estado_buscado='TODOS'
 )
 
 # 4. TÍTULO ACTUALIZADO SEGÚN BACKEND

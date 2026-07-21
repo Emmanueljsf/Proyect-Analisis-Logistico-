@@ -35,8 +35,8 @@ def poblar_sistema_con_data_realista():
         
         if not usuario_admin:
             try:
-                # ENCRIPTACIÓN EN ACCIÓN: Pasamos "admin123" por sha256
-                password_seguro = encriptar_password("admin123")
+                # ENCRIPTACIÓN EN ACCIÓN: Pasamos "primerlogin" por sha256
+                password_seguro = encriptar_password("primerlogin")
 
                 usuario_admin = Usuarios(
                     nombres="tu nombre",
@@ -249,5 +249,5 @@ def poblar_sistema_con_data_realista():
 
 
 
-#if __name__ == "__main__":
-#    poblar_sistema_con_data_realista()
+if __name__ == "__main__":
+    poblar_sistema_con_data_realista()
