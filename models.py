@@ -1,4 +1,4 @@
-from sqlmodel import SQLModel, Field, Relationship, create_engine, Session
+from sqlmodel import SQLModel, Field, Relationship, create_engine, Session, select
 from typing import List, Optional
 from datetime import date, datetime
 import sqlalchemy
@@ -7,6 +7,7 @@ from sqlalchemy import MetaData, event, Index, text # Importar esto es clave
 from sqlite3 import Connection as SQLite3Connection
 from pydantic import field_validator  #  Importación obligatoria para validaciones
 import os
+import hashlib
 
 # virtualenv -p python3 o python -m venv env
 # .\env\Scripts\activate
@@ -312,6 +313,28 @@ class DetallesSalida(SQLModel, table=True):
 def create_db_and_tables():
     """Llamar al inicio de app.py"""
     SQLModel.metadata.create_all(engine)
+    
+    # 🛡️ AUTO-SEEDING DE CONTINGENCIA DIRECTO EN EL ENGINE
+    # Esto garantiza que la base de datos en la nube Nace con su administrador, 
+    # sin depender de estados de sesión o redirecciones frágiles.
+    with Session(engine) as session:
+        statement = select(Usuarios).where(Usuarios.username == "admin")
+        admin_existente = session.exec(statement).first()
+        
+        if not admin_existente:
+            # Hash manual de 'primerlogin' con SHA-256
+            password_hasheada = hashlib.sha256("primerlogin".encode()).hexdigest()
+            
+            nuevo_admin = Usuarios(
+                nombres="Administrador",
+                apellidos="De Control",
+                username="admin",
+                password=password_hasheada,
+                rol=Rol.Administrador,
+                activo=True
+            )
+            session.add(nuevo_admin)
+            session.commit()
 
 
 
