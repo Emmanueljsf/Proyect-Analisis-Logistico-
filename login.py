@@ -32,7 +32,7 @@ def Vista_Login(credenciales_primer_uso=None):
             * **Contraseña:** `{credenciales_primer_uso['password']}`
             
             *Por seguridad, use estas credenciales para configurar el personal real en el módulo de gestión. Luego edite el usuario 
-            para que concuerde con sus datos (si no cambia el nombre de usuario, seguira mostrandose este mensaje)*
+            para que concuerde con sus datos (si no cambia el nombre de usuario, ni crea otro usuario, seguira mostrandose este mensaje)*
             """
         )
 
@@ -76,7 +76,7 @@ def Vista_Login(credenciales_primer_uso=None):
                         # 2. Congelamos la ejecución por 1.5 segundos para que dé tiempo de leer
                         time.sleep(1.2)
                         # FUNCION PARA GENERAR DATOS DE PRUEBA
-                        #poblar_sistema_con_data_realista()
+                        poblar_sistema_con_data_realista()
                         # Forzamos la recarga de Streamlit para que dibuje el menú principal del sistema
                         st.rerun()
                 

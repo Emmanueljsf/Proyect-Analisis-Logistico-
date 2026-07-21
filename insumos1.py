@@ -100,7 +100,7 @@ def Insumos():
             
 
         # Creamos dos columnas visuales elegantes
-        col_excel, col_pdf, _, f_col_btn = st.columns([2,2,1,1])
+        col_excel, col_pdf, _, f_col_btn = st.columns([2,2,1,1.2])
 
         # BOTON DE REGISTRO
         with f_col_btn:
