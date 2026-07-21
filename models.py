@@ -6,6 +6,7 @@ from enum import Enum
 from sqlalchemy import MetaData, event, Index, text # Importar esto es clave
 from sqlite3 import Connection as SQLite3Connection
 from pydantic import field_validator  #  Importación obligatoria para validaciones
+import os
 
 # virtualenv -p python3 o python -m venv env
 # .\env\Scripts\activate
@@ -13,9 +14,14 @@ from pydantic import field_validator  #  Importación obligatoria para validacio
 # 1. BORRADO AGRESIVO DE MAPPERS (Corta el error de raíz)
 sqlalchemy.orm.clear_mappers()
 
-# 2. CONFIGURACIÓN DEL ENGINE
-sqlite_url = "sqlite:///Control_insumos.db"
-# 📌 Añadimos timeout=30 para que si la base de datos está ocupada, espere hasta 30 segundos antes de dar error
+# 2. CONFIGURACIÓN DEL ENGINE CON RUTA ABSOLUTA
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Si quieres usar la carpeta data del Dockerfile o mantenerlo en la raíz absoluta:
+DB_DIR = os.path.join(BASE_DIR, "data") if os.path.exists(os.path.join(BASE_DIR, "data")) else BASE_DIR
+db_path = os.path.join(DB_DIR, "Control_insumos.db")
+
+sqlite_url = f"sqlite:///{db_path}"
+
 engine = create_engine(
     sqlite_url, 
     connect_args={
