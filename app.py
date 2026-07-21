@@ -1,5 +1,5 @@
 import streamlit as st
-from bd.models import create_db_and_tables
+from models import create_db_and_tables
 from insumos1 import Insumos
 from lotes import Vista_Control_Lotes
 from entradas import Vista_Entradas
