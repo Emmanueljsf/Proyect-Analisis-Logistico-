@@ -120,8 +120,8 @@ else:
 # ==============================================================================
 # 3. ENRUTADOR DE CONTROL DE ACCESO
 # ==============================================================================
-if not st.session_state["usuario_autenticado"]:
-    Vista_Login(credenciales_iniciales)
+if st.session_state["usuario_autenticado"]:
+    Vista_Login(credenciales_iniciales) #"credenciales" iniciales es solo para pa primera vez
     
     # Si el login fue exitoso en este ciclo, guardamos en el JSON inmediatamente
     if st.session_state["usuario_autenticado"]:
