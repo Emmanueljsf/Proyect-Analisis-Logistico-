@@ -249,5 +249,5 @@ def poblar_sistema_con_data_realista():
 
 
 
-if __name__ == "__main__":
-    poblar_sistema_con_data_realista()
+#if __name__ == "__main__":
+#    poblar_sistema_con_data_realista()

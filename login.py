@@ -36,7 +36,7 @@ def Vista_Login(credenciales_primer_uso=None):
             """
         )
 
-    col_iz, col_form, col_de = st.columns([1.3, 2.8, 1.3])
+    col_iz, col_form, col_de = st.columns([0.5, 4, 0.5])
     # Creamos un contenedor centrado y estético para el formulario
     with col_form:
         with st.container(border=True):

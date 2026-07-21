@@ -121,7 +121,6 @@ else:
 # 3. ENRUTADOR DE CONTROL DE ACCESO
 # ==============================================================================
 if not st.session_state["usuario_autenticado"]: # si no esta autenticado lo manda pal login
-    poblar_sistema_con_data_realista()
     Vista_Login(credenciales_iniciales) #"credenciales" iniciales es solo para pa primera vez
     
     # Si el login fue exitoso en este ciclo, guardamos en el JSON inmediatamente
