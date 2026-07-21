@@ -1,7 +1,7 @@
 import uuid
 import logging
 from sqlmodel import Session, select, and_, or_, func  # Operaciones de consulta
-from bd.models import Entradas, Lotes, Insumos, Usuarios, DetallesSalida, Estado, engine  # Modelos de datos del SIAL-MED
+from models import Entradas, Lotes, Insumos, Usuarios, DetallesSalida, Estado, engine  # Modelos de datos del SIAL-MED
 from seguridad import sanitizar_input, usuario_tiene_permiso_escritura
 from datetime import date, datetime, time  # Manejo de fechas para vencimientos
 from sqlalchemy.orm import joinedload, make_transient, selectinload

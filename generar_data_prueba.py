@@ -2,7 +2,7 @@ import random
 from datetime import date, datetime, timedelta
 from typing import Optional
 from sqlmodel import Session, select, Field
-from bd.models import Insumos, Lotes, Entradas, Salidas, DetallesSalida, Usuarios, Estado, Rol, engine
+from models import Insumos, Lotes, Entradas, Salidas, DetallesSalida, Usuarios, Estado, Rol, engine
 import hashlib
 
 

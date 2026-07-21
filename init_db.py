@@ -1,5 +1,5 @@
 from sqlmodel import Session, select
-from bd.models import create_db_and_tables, Usuarios, Rol, engine
+from models import create_db_and_tables, Usuarios, Rol, engine
 import hashlib
 
 def encriptar_contrasena(password: str) -> str:

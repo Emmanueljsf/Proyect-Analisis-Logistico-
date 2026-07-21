@@ -1,7 +1,7 @@
 import uuid
 import logging
 from sqlmodel import Session, select, and_, or_, func
-from bd.models import Salidas, DetallesSalida, Lotes, Insumos, Usuarios, Estado, engine
+from models import Salidas, DetallesSalida, Lotes, Insumos, Usuarios, Estado, engine
 from seguridad import sanitizar_input, usuario_tiene_permiso_escritura
 from datetime import datetime, date, time
 from sqlalchemy.exc import IntegrityError

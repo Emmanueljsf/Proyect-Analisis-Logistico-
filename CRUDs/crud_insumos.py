@@ -4,7 +4,7 @@ import re
 from seguridad import sanitizar_input, usuario_tiene_permiso_escritura
 from sqlmodel import Session, select
 from sqlalchemy.orm import selectinload, joinedload
-from bd.models import engine, Insumos, Usuarios, Lotes, Entradas, Salidas, DetallesSalida, Estado, Rol, obtener_sesion_bd
+from models import engine, Insumos, Usuarios, Lotes, Entradas, Salidas, DetallesSalida, Estado, Rol, obtener_sesion_bd
 from datetime import date
 from typing import List
 import math

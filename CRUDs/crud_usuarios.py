@@ -5,7 +5,7 @@ import re # Para evaluar la estructura sintáctica del correo electrónico
 import hashlib # Para encriptar las contraseñas con el algoritmo SHA-256
 from typing import List, Optional
 from sqlmodel import Session, select
-from bd.models import engine, Usuarios, Rol # Estructuras de datos nativas del ecosistema SIAL-MED
+from models import engine, Usuarios, Rol # Estructuras de datos nativas del ecosistema SIAL-MED
 
 # ==============================================================================
 # SECCIÓN 1: VALIDACIONES DE SEGURIDAD Y FORMATO

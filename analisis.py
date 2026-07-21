@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.express as px
 from analisis_logistico import calcular_metricas_analiticas_sialmed
 from reportes_analisis import generar_reporte_rop_excel, generar_reporte_caducidad_excel, generar_reporte_rop_pdf, generar_reporte_caducidad_pdf
-from bd.models import Rol
+from models import Rol
 
 # --------------------------------------------------------------------------
 # 🛠️ OPTIMIZACIÓN 4: FUNCIÓN DE ESTILIZADO DEFINIDA FUERA DEL BUCLE

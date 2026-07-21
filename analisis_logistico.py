@@ -2,7 +2,7 @@ import uuid
 import logging
 import streamlit as st
 from sqlmodel import Session, select, func
-from bd.models import Salidas, DetallesSalida, Entradas, Lotes, Insumos, engine, Estado
+from models import Salidas, DetallesSalida, Entradas, Lotes, Insumos, engine, Estado
 from datetime import datetime, date, timedelta
 import pandas as pd
 import numpy as np
