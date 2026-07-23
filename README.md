@@ -8,9 +8,11 @@
 
 **SIAL-MED** es una plataforma web de ingeniería y analítica logística diseñada para optimizar, controlar y auditar el flujo de inventario médico del **Destacamento 134 de la GNB**. El sistema mitiga la incertidumbre en el reabastecimiento mediante el cálculo automatizado de métricas como el *Lead Time* de proveedores, la aplicación de la matriz de criticidad VED (Vital, Esencial, Deseable) y la ejecución de algoritmos de despacho basados estrictamente en el criterio **FEFO** (*First Expired, First Out*).
 
-Además, el sistema cuenta con un módulo de gobernanza que restringe acciones según el rol del usuario y dispara alertas automatizadas por protocolo SMTP (Gmail) en tiempo real cuando ocurren salidas de insumos clasificados como **Vitales**.
+Además, el sistema cuenta con un módulo de gobernanza que restringe acciones según el rol del usuario.
 
-> ⚠️ **Nota de Estado del Proyecto:** El sistema se encuentra actualmente en su **fase de desarrollo y construcción activa** (Avance #3). Se ha consolidado con éxito la arquitectura base, la estructura de persistencia local, las políticas de gobernanza, el pipeline de integración continua y la paridad de entornos. Los módulos avanzados de interfaz de usuario y analítica matemática se irán expandiendo en los próximos ciclos de trabajo.
+> ⚠️ **Nota de Estado del Proyecto 26-05-2026:** El sistema se encuentra actualmente en su **fase de desarrollo y construcción activa** (Avance #3). Se ha consolidado con éxito la arquitectura base, la estructura de persistencia local, las políticas de gobernanza, el pipeline de integración continua y la paridad de entornos. Los módulos avanzados de interfaz de usuario y analítica matemática se irán expandiendo en los próximos ciclos de trabajo.
+
+⚠️ **Nota de Estado del Proyecto 23-07-2026:** El sistema se encuentra actualmente en su **fase de MVP funcional** 
 
 ## 📚 Documentación Técnica Autogenerada
 Para generar el servidor local con la documentación interactiva de todas las funciones del proyecto basadas en sus Docstrings, ejecuta:
@@ -89,6 +91,8 @@ erDiagram
     Lotes ||--|{ DetallesSalida : "incluido_en"
     Salidas ||--|{ DetallesSalida : "compone"
     Usuarios ||--|{ Salidas : "despacha"
+```
+---
 
 ### 2. Diagrama de Casos de Uso
 ```mermaid
