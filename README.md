@@ -25,6 +25,7 @@ python -m pydoc -p 1234
 La arquitectura de SIAL-MED está programada en su totalidad utilizando bloques sintácticos de **Mermaid.js**, permitiendo su renderizado nativo y dinámico dentro de la interfaz de GitHub sin depender de imágenes externas.
 
 ### 1. Diagrama Entidad-Relación
+
 ```mermaid
 erDiagram
     Insumos {
@@ -88,8 +89,6 @@ erDiagram
     Lotes ||--|{ DetallesSalida : "incluido_en"
     Salidas ||--|{ DetallesSalida : "compone"
     Usuarios ||--|{ Salidas : "despacha"
-```
----
 
 ### 2. Diagrama de Casos de Uso
 ```mermaid
