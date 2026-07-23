@@ -258,17 +258,17 @@ def verificar_y_crear_primer_admin() -> Optional[dict]:
                 rol=Rol.Administrador,
                 activo=True
             )
-            # Reutilizamos tu función del CRUD con sus respectivas validaciones[cite: 10]
+            # Reutilizamos tu función del CRUD con sus respectivas validaciones
             if crear_usuario(admin_inicial):
                 return {"username": "admin", "password": "primerlogin"}
         
-        with Session(engine) as session:
-            # Consultamos todos los usuarios actuales
-            usuarios = session.exec(select(Usuarios)).all()
-            
-            # Si hay exactamente un usuario y su username es 'admin', el peligro persiste
-            if len(usuarios) == 1 and usuarios[0].username == "admin":
-                return {"username": usuarios[0].username, "password": 'primerlogin'}
+        # SEGUNDA PARTE
+        # Consultamos todos los usuarios actuales
+        usuarios = session.exec(select(Usuarios)).all()
+        
+        # Si hay exactamente un usuario y su username es 'admin', el peligro persiste
+        if len(usuarios) == 1 and usuarios[0].username == "admin":
+            return {"username": usuarios[0].username, "password": 'primerlogin'}
                 
     return None
 

@@ -177,7 +177,7 @@ def calcular_metricas_analiticas_sialmed(dias_ventana: int = 120):
 
             df_rop_final["z"] = df_rop_final["clasificacion_ved"].apply(asignar_factor_z)
             
-            # 🎯 Corrección Física Aplicada: SS = Z * σ_d * √LT_promedio
+            # Corrección Física Aplicada: SS = Z * σ_d * √LT_promedio
             df_rop_final["ss"] = (
                 df_rop_final["z"] 
                 * df_rop_final["desviacion_demanda"] 
