@@ -5,6 +5,7 @@ import CRUDs.crud_insumos as crud_i
 from datetime import datetime
 from reportes_salidas import generar_reporte_salida_caducidad_pdf
 from seguridad import usuario_tiene_permiso_escritura
+from analisis_logistico import calcular_metricas_analiticas_sialmed
 import uuid
 import logging
 
@@ -76,8 +77,25 @@ def modal_registro_salida_fefo():
             # --- ➕ MÓDULO 4: PANEL COLECTOR DE RENGLONES (LAYOUT HORIZONTAL FILA 2) ---
             st.markdown("##### ➕ Agregar Medicamento a la Cola de Despacho")
             
-            # Consumo síncrono del catálogo de medicamentos activos en el sistema
+            # Obtener métricas de caducidad para evaluar riesgos si la razón lo exige[cite: 2]
+            _, df_caducidad_metrica = calcular_metricas_analiticas_sialmed()
+
+            # Consumo síncrono del catálogo de medicamentos activos en el sistema[cite: 1]
             lista_insumos = crud_i.obtener_insumos(solo_activos=True) 
+
+            # Filtrado inteligente de insumos según la Razón de Salida seleccionada
+            if razon_seleccionada == "Traslado Preventivo" and not df_caducidad_metrica.empty:
+                ids_insumos_riesgo = df_caducidad_metrica[
+                    df_caducidad_metrica["alerta_vencimiento"].isin(["⚠️ CRÍTICO (MENOS DE 20 DÍAS)", "🔄 ALERTA: RIESGO DE MERMA"])
+                ]["id_insumo"].unique()
+                lista_insumos = [ins for ins in lista_insumos if ins.id_insumo in ids_insumos_riesgo]
+
+            elif razon_seleccionada == "Perdida por Caducidad" and not df_caducidad_metrica.empty:
+                ids_insumos_vencidos = df_caducidad_metrica[
+                    df_caducidad_metrica["alerta_vencimiento"] == "🚨 LOTE VENCIDO (AISLAR)"
+                ]["id_insumo"].unique()
+                lista_insumos = [ins for ins in lista_insumos if ins.id_insumo in ids_insumos_vencidos]
+
             dict_insumos = {ins.nombre: ins.id_insumo for ins in lista_insumos}
             
             f2_c1, f2_c2, f2_c3 = st.columns([2.5, 1.5, 1.0])
@@ -89,6 +107,7 @@ def modal_registro_salida_fefo():
             lotes_compatibles = []
             modo_extraccion = "SELECCIÓN MANUAL"
             stock_total_disponible = 0
+            cantidad_sugerida_inicial = 1
 
             # Bloque evaluador cuando un insumo es seleccionado en la interfaz
             if medicina_sel != "":
@@ -97,26 +116,77 @@ def modal_registro_salida_fefo():
                 lotes_compatibles = crud_s.obtener_lotes_disponibles_fefo(id_insumo_sel, razon_salida=txt_razon)
                 
                 if lotes_compatibles:
+                    # Sumamos el stock de todos los lotes disponibles para el límite global del insumo
                     stock_total_disponible = sum(l.stock_disponible for l in lotes_compatibles)
                     
-                    # ⚡ CASO A: CRITERIO FEFO AUTOMÁTICO (Consumo Clínico y Donaciones)
-                    if razon_seleccionada in ["Consumo Clínico", "Traslado Preventivo"]:
+                    # ⚡ CASO A: TRASLADO PREVENTIVO (Lote automático en riesgo y cantidad recomendada)
+                    if razon_seleccionada == "Traslado Preventivo":
+                        modo_extraccion = "Traslado Preventivo Automático"
+                        
+                        lote_en_riesgo = None
+                        if not df_caducidad_metrica.empty:
+                            lotes_riesgo_df = df_caducidad_metrica[
+                                (df_caducidad_metrica["id_insumo"] == id_insumo_sel) & 
+                                (df_caducidad_metrica["alerta_vencimiento"].isin(["⚠️ CRÍTICO (MENOS DE 20 DÍAS)", "🔄 ALERTA: RIESGO DE MERMA"]))
+                            ]
+                            if not lotes_riesgo_df.empty:
+                                id_lote_en_riesgo = lotes_riesgo_df.iloc[0]["id_lote"]
+                                cantidad_sugerida_inicial = int(lotes_riesgo_df.iloc[0]["cantidad_riesgo"])
+                                lote_en_riesgo = next((l for l in lotes_compatibles if l.id_lote == id_lote_en_riesgo), None)
+
+                        primer_lote = lote_en_riesgo if lote_en_riesgo else lotes_compatibles[0]
+                        lote_manual_id = primer_lote.id_lote
+                        cantidad_sugerida_inicial = max(1, min(cantidad_sugerida_inicial, stock_total_disponible))
+                        
+                        with f2_c2:
+                            st.text_input("Lote Seleccionado (Preventivo):", value=f"🎯 {primer_lote.codigo_lote}", disabled=True)
+                        
+                        st.info(
+                            f"⚠️ **TRASLADO PREVENTIVO (RIESGO DETECTADO):**\n\n"
+                            f"* 📦 **Lote Asignado:** `{primer_lote.codigo_lote}` (Vence el {primer_lote.fecha_vencimiento.strftime('%d/%m/%Y') if primer_lote.fecha_vencimiento else 'N/A'}).\n"
+                            f"* 💡 **Cantidad Recomendada a Retirar:** `{cantidad_sugerida_inicial} unidades` (basado en análisis de merma)."
+                        )
+
+                    # ⚡ CASO B: CONSUMO CLÍNICO (FEFO Automático Estándar con stock total sumado)
+                    elif razon_seleccionada == "Consumo Clínico":
                         modo_extraccion = "FEFO Autómatico"
                         primer_lote = lotes_compatibles[0] # Lote con vencimiento más crítico en estantes
                         lote_manual_id = primer_lote.id_lote
+                        cantidad_sugerida_inicial = 1
                         
                         with f2_c2:
                             st.text_input("Lote Asignado (FEFO Auto):", value=f"🎯 {primer_lote.codigo_lote} (Vigente)", disabled=True)
                         
-                        # RESTABLECIDO: Cuadro informativo original del estado del inventario para automatismo
                         st.info(
                             f"📊 **ESTADO DE INVENTARIO PARA {medicina_sel}:**\n\n"
-                            f"* 📦 **Stock TOTAL en Almacén:** `{stock_total_disponible} unidades` (Sumando lotes disponibles).\n"
+                            f"* 📦 **Stock TOTAL en Almacén:** `{stock_total_disponible} unidades` (Sumando todos los lotes disponibles).\n"
                             f"* 🎯 **Lote de Consumo Prioritario (FEFO):** `{primer_lote.codigo_lote}` (Vence el {primer_lote.fecha_vencimiento.strftime('%d/%m/%Y') if primer_lote.fecha_vencimiento else 'N/A'}).\n"
-                            f"* 📍 **Ubicación Física en Estante:** **{primer_lote.ubicacion_fisica}** (Hay {primer_lote.stock_disponible} u. en este lote)."
+                            f"* 📍 **Ubicación Física en Estante:** **{primer_lote.ubicacion_fisica}** (Hay {primer_lote.stock_disponible} u. en este lote prioritario)."
                         )
                     
-                    # CASO B: SELECCIÓN MANUAL (Traslados, Perdidas por caducidad y Otros)
+                    # CASO C: PÉRDIDA POR CADUCIDAD (Lotes vencidos, por default todo el stock del lote)
+                    elif razon_seleccionada == "Perdida por Caducidad":
+                        modo_extraccion = "Purga Vencidos Manual"
+                        dict_lotes_manuales = {
+                            f"LOTE VENCIDO: {l.codigo_lote} | STOCK: {l.stock_disponible} unds. | VENCE: {l.fecha_vencimiento.strftime('%d/%m/%Y') if l.fecha_vencimiento else 'N/A'}": l.id_lote
+                            for l in lotes_compatibles
+                        }
+                        with f2_c2:
+                            lote_texto_sel = st.selectbox("Seleccione Lote Vencido: *", list(dict_lotes_manuales.keys()), key="sel_lote_vencido_salida")
+                            lote_manual_id = dict_lotes_manuales[lote_texto_sel]
+                        
+                        lote_objeto_sel = next(l for l in lotes_compatibles if l.id_lote == lote_manual_id)
+                        stock_total_disponible = lote_objeto_sel.stock_disponible
+                        cantidad_sugerida_inicial = stock_total_disponible  # Por default todo el lote
+                        
+                        st.warning(
+                            f"🚨 **MODO PURGA ACTIVO (SÓLO LOTES VENCIDOS):**\n\n"
+                            f"* 📦 **Stock Vencido en este Lote:** `{stock_total_disponible} unidades`.\n"
+                            f"* 🎯 **Lote Aislado para Desincorporar:** `{lote_objeto_sel.codigo_lote}`.\n"
+                            f"* 💡 **Debe retirar todo el lote (`{cantidad_sugerida_inicial} u.`)."
+                        )
+
+                    # CASO D: SELECCIÓN MANUAL (Otros)
                     else:
                         modo_extraccion = "SELECCIÓN MANUAL"
                         dict_lotes_manuales = {
@@ -127,25 +197,16 @@ def modal_registro_salida_fefo():
                             lote_texto_sel = st.selectbox("Seleccione Lote Físico: *", list(dict_lotes_manuales.keys()), key="sel_lote_manual_salida")
                             lote_manual_id = dict_lotes_manuales[lote_texto_sel]
                         
-                        # Reajuste de la cota máxima del stock al lote específico amarrado por el operador
                         lote_objeto_sel = next(l for l in lotes_compatibles if l.id_lote == lote_manual_id)
                         stock_total_disponible = lote_objeto_sel.stock_disponible
+                        cantidad_sugerida_inicial = 1
                         
-                        # RESTABLECIDO: Cuadro informativo original del estado del inventario para control manual
-                        if razon_seleccionada == "Perdida por Caducidad":
-                            st.warning(
-                                f"🚨 **MODO PURGA ACTIVO (SÓLO LOTES VENCIDOS):**\n\n"
-                                f"* 📦 **Stock Vencido en este Lote:** `{stock_total_disponible} unidades`.\n"
-                                f"* 🎯 **Lote Aislado para Desincorporar:** `{lote_objeto_sel.codigo_lote}`.\n"
-                                f"* 📍 **Ubicación en Estante:** **{lote_objeto_sel.ubicacion_fisica}**."
-                            )
-                        else:
-                            st.info(
-                                f"🔓 **OPERACIÓN MANUAL ACTIVA (SÓLO LOTES VIGENTES):**\n\n"
-                                f"* 📦 **Stock Disponible en este Lote:** `{stock_total_disponible} unidades`.\n"
-                                f"* 🎯 **Lote Seleccionado para Transferir:** `{lote_objeto_sel.codigo_lote}`.\n"
-                                f"* 📍 **Ubicación en Estante:** **{lote_objeto_sel.ubicacion_fisica}**."
-                            )
+                        st.info(
+                            f"🔓 **OPERACIÓN MANUAL ACTIVA (SÓLO LOTES VIGENTES):**\n\n"
+                            f"* 📦 **Stock Disponible en este Lote:** `{stock_total_disponible} unidades`.\n"
+                            f"* 🎯 **Lote Seleccionado para Transferir:** `{lote_objeto_sel.codigo_lote}`.\n"
+                            f"* 📍 **Ubicación en Estante:** **{lote_objeto_sel.ubicacion_fisica}**."
+                        )
                 else:
                     with f2_c2:
                         st.text_input("Estado del Lote:", value="❌ Sin Existencias Aptas", disabled=True)
@@ -155,9 +216,15 @@ def modal_registro_salida_fefo():
                     st.text_input("Lote:", value="💡 Seleccione Insumo", disabled=True)
 
             with f2_c3:
-                # Botones de + y - liberados operativamente fijando límites genéricos seguros
                 max_unidades_permitidas = stock_total_disponible if (medicina_sel != "" and lotes_compatibles) else 99999
-                cant_solicitada = st.number_input("Cantidad:", min_value=1, max_value=int(max_unidades_permitidas), value=1, step=1, key="num_cant_salida")
+                cant_solicitada = st.number_input(
+                    "Cantidad:", 
+                    min_value=1, 
+                    max_value=int(max_unidades_permitidas), 
+                    value=int(cantidad_sugerida_inicial), 
+                    step=1, 
+                    key="num_cant_salida"
+                )
 
 
             c_anexar, _, c_limpiar = st.columns([2, 0.6, 1.4])

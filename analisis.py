@@ -114,7 +114,6 @@ def Vista_Dashboard_Logistico():
             # Cálculo de la fracción del inventario en alerta (Porcentaje)
             total_insumos = len(df_rop)
             insumos_en_alerta = len(df_criticos_mensaje)
-            print(df_criticos_grafico)
             porcentaje_alerta = (insumos_en_alerta / total_insumos * 100) if total_insumos > 0 else 0
 
             # --------------------------------------------------------------------------
@@ -128,7 +127,7 @@ def Vista_Dashboard_Logistico():
                 df_semaforo = df_rop.groupby("semaforo").size().reset_index(name="cantidad")
                 color_map_semaforo = {
                     "🟢 ÓPTIMO": "#2ecc71",
-                    "🌕 ADVERTENCIA (REORDEN)": "#f1c40f",
+                    "🟡 ADVERTENCIA (REORDEN)": "#f1c40f",
                     "🔴 CRÍTICO (SIN STOCK)": "#e74c3c"
                 }
                 
@@ -213,7 +212,7 @@ def Vista_Dashboard_Logistico():
                             if excel_data_rop:
                                 # 3. Si hay datos, habilitamos el botón nativo de descarga
                                 st.download_button(
-                                    label="📊 Descargar Excel",
+                                    label="⬇️ Descargar Excel",
                                     data=excel_data_rop,
                                     file_name=f"Reporte_ROP_{filtro_sem}.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -352,7 +351,7 @@ def Vista_Dashboard_Logistico():
                         marker_color="#d62728",          # Rojo carmín uniforme
                         marker_line_color="#ffffff",
                         marker_line_width=1,
-                        texttemplate='%{text} u',        # 'u' de unidades abreviado para no saturar
+                        texttemplate='%{text:.0f} u',        # 'u' de unidades abreviado para no saturar
                         textposition='outside',          # Texto arriba de la barra
                         cliponaxis=False
                     )
@@ -374,11 +373,12 @@ def Vista_Dashboard_Logistico():
             # --------------------------------------------------------------------------
             # BANNER INFORMATIVO DE COBERTURA
             # --------------------------------------------------------------------------
-            st.warning(
-                f"⚠️ **Alerta de Caducidad:** El **{porcentaje_comprometido:.1f}%** de los lotes activos "
-                f"({lotes_comprometidos} de {total_lotes} lotes en total) presenta algún grado de riesgo de vencimiento "
-                f"o merma acumulada. Se recomienda coordinar jornadas de distribución o traslados."
-            )
+            if not df_mermas_reales.empty:
+                st.warning(
+                    f"⚠️ **Alerta de Caducidad:** El **{porcentaje_comprometido:.1f}%** de los lotes activos "
+                    f"({lotes_comprometidos} de {total_lotes} lotes en total) presenta algún grado de riesgo de vencimiento "
+                    f"o merma acumulada. Se recomienda coordinar jornadas de distribución o traslados."
+                )
             st.write("---")
 
             # Filtros de Caducidad para la Tabla Detallada y botones de reporte en excel y pdf
@@ -399,13 +399,13 @@ def Vista_Dashboard_Logistico():
                 usuario_actual = st.session_state.get("user_nombre_completo", "OPERADOR SIAL-MED")
                 with col_excel_cad:
                     # 1. Creamos el botón disparador para evitar consultas automáticas
-                    if st.button("📄 Generar Reporte en Excel (.xlsx)", use_container_width=True, key="btn_trigger_excel"):
+                    if st.button("📊 Generar Reporte en Excel (.xlsx)", use_container_width=True, key="btn_trigger_excel"):
                         with st.spinner("Procesando Excel..."):
                         # 2. La consulta a la BD SOLO ocurre AQUÍ tras hacer clic
                             excel_data_cad = generar_reporte_caducidad_excel(df_cad_render, filtros_cad_aplicados, usuario_actual)
                             if excel_data_cad:       
                                 st.download_button(
-                                    label="📊 Generar Reporte en Excel",
+                                    label="⬇️ Descargar Excel",
                                     data=excel_data_cad,
                                     file_name="SIALMED_Reporte_Caducidad_Preventivo.xlsx",
                                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

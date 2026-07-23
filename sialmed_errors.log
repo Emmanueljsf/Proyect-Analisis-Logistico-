@@ -4,3 +4,9 @@
 2026-07-19 13:54:58,016 - ERROR - UUID: cd7cac64-c2a1-4888-8aec-8ebed8be79d4 | Error: 'NoneType' object is not subscriptable
 2026-07-19 13:55:53,336 - ERROR - UUID: e9fd2068-a67c-4101-a140-5148f0ed1b52 | Error: 'NoneType' object is not subscriptable
 2026-07-19 14:41:53,237 - ERROR - {"correlation_id": "0380dc63-4e8a-46e0-b78e-2e7d61d7693d", "error": "obtener_entradas_filtradas_paginadas() got an unexpected keyword argument 'u'", "modulo": "nombre_modulo"}
+2026-07-22 00:28:30,072 - ERROR - {"correlation_id": "bef99914-552f-49ce-b3c0-6802128f698c", "error": "'alerta_vencimiento'", "modulo": "analisis_logistico"}
+2026-07-22 00:28:30,089 - ERROR - {"correlation_id": "4e311dae-d792-4084-a40b-81bd67722ee7", "error": "cannot unpack non-iterable NoneType object", "modulo": "analisis_logistico_backend"}
+2026-07-22 00:31:02,584 - ERROR - {"correlation_id": "9ead99a4-be97-4e01-8300-fa7d0a53a851", "error": "'alerta_vencimiento'", "modulo": "analisis_logistico"}
+2026-07-22 00:31:02,585 - ERROR - {"correlation_id": "9b974fca-76b4-449c-926c-9715f8388958", "error": "cannot unpack non-iterable NoneType object", "modulo": "analisis_logistico_backend"}
+2026-07-22 00:48:51,751 - ERROR - {"correlation_id": "a6c3d4a0-6e11-4821-b828-da3a970ec793", "error": "local variable 'df_caducidad' referenced before assignment", "modulo": "analisis_logistico"}
+2026-07-22 00:48:51,753 - ERROR - {"correlation_id": "ff16a184-bebe-40fe-b914-fd43ca11b446", "error": "cannot unpack non-iterable NoneType object", "modulo": "analisis_logistico_backend"}

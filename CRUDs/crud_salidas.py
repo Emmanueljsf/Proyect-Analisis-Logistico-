@@ -141,7 +141,7 @@ def registrar_despacho_combinado_fefo(
             modo = pedido.get("modo_extraccion")
             
             # DETERMINACIÓN DEL CANAL DE STOCK (MANUAL VS AUTOMÁTICO)
-            if lote_manual_id and modo == "SELECCIÓN MANUAL":
+            if lote_manual_id and (modo == "SELECCIÓN MANUAL" or "Preventivo" in str(modo) or "Purga" in str(modo)):
                 lote_obj = session.get(Lotes, lote_manual_id)
                 lotes_disponibles = [lote_obj] if lote_obj and lote_obj.activo else []
             else:

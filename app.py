@@ -117,6 +117,7 @@ else:
     guardar_sesion_local() # Reescribe el JSON en cada clic para asegurar que mantenga el estado más reciente
 
 
+
 # ==============================================================================
 # 3. ENRUTADOR DE CONTROL DE ACCESO
 # ==============================================================================

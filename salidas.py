@@ -25,7 +25,7 @@ def Vista_Salidas():
 
         # Interceptor de Guía de recolección FEFO (Mantenido intacto)
         if st.session_state["hoja_ruta_despacho"] is not None:
-            st.title("📦 Guía de Extracción en Almacén (Ruta FEFO)")
+            st.title("📦 Guía de Extracción en Almacén")
             st.success("🎉 ¡Movimiento de Inventario Consolidado Exitosamente!")
             
             # DESCARGA DEL REPORTE DE VENCIMIENTO
